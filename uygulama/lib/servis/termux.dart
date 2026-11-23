@@ -39,6 +39,26 @@ abstract final class Termux {
     return await _kanal.invokeMethod<bool>('izinIste') ?? false;
   }
 
+  /// Cihazın desteklediği işlemci mimarileri, en uygunu önce.
+  static Future<List<String>> abiler() async {
+    if (!destekleniyor) return const [];
+    return ((await _kanal.invokeMethod<List>('abiler')) ?? const [])
+        .cast<String>();
+  }
+
+  /// Atölye'nin başka uygulama kurdurma izni (Bilinmeyen uygulamalar) var mı.
+  static Future<bool> kurulumIzniVar() async {
+    if (!destekleniyor) return false;
+    return await _kanal.invokeMethod<bool>('kurulumIzniVar') ?? false;
+  }
+
+  /// Sistem ayarlarında bu izni verme ekranını açar.
+  static Future<void> kurulumIzniAc() => _kanal.invokeMethod('kurulumIzniAc');
+
+  /// İndirilmiş APK için Android'in yükleme ekranını açar.
+  static Future<void> apkKur(String yol) =>
+      _kanal.invokeMethod('apkKur', {'yol': yol});
+
   /// Termux'ta bir komut çalıştırır. [arkaPlan] ise terminal açılmaz;
   /// değilse Termux'ta yeni bir oturum açılır (giriş adımları için).
   static Future<void> calistir(

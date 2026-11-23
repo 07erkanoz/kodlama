@@ -2,7 +2,11 @@ package tr.com.lifeos.atolye
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -37,6 +41,34 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "izinVar" -> result.success(izinVar())
+                    "abiler" -> result.success(Build.SUPPORTED_ABIS.toList())
+                    "kurulumIzniVar" -> result.success(
+                        Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                            packageManager.canRequestPackageInstalls()
+                    )
+                    "kurulumIzniAc" -> {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName"),
+                            )
+                        )
+                        result.success(null)
+                    }
+                    "apkKur" -> {
+                        try {
+                            val dosya = File(call.argument<String>("yol")!!)
+                            val adres = FileProvider.getUriForFile(this, "$packageName.dosyalar", dosya)
+                            startActivity(
+                                Intent(Intent.ACTION_VIEW)
+                                    .setDataAndType(adres, "application/vnd.android.package-archive")
+                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("kurulamadi", e.message, null)
+                        }
+                    }
                     "izinIste" -> {
                         if (izinVar()) {
                             result.success(true)

@@ -45,7 +45,10 @@ açılınca geçmiş buradan gelir. Dosyalar aynı porttan `GET /dosya?yol=…&t
 ## Kurulum akışı (telefonda)
 
 1. Kullanıcı ajanları seçer, kurulacaklar listelenir, onay alınır.
-2. Termux yoksa F-Droid ya da GitHub sayfası açılır; dönünce Atölye Termux'u algılar.
+2. Termux yoksa Atölye resmi GitHub sürümünden cihazın mimarisine uygun APK'yı indirir,
+   sürümle yayımlanan SHA-256 özetiyle doğrular ve Android'in yükleme ekranını açar
+   ("Bilinmeyen uygulamaları yükle" izni bir kez istenir). Kurulum bitince Atölye Termux'u
+   algılayıp sonraki adıma kendisi geçer. İstenirse F-Droid sürümü de kurulabilir.
 3. Atölye `kur.sh` ve köprüyü telefonun içinden (127.0.0.1, rastgele port ve yol) sunar; tek satırlık
    komutu panoya kopyalar ve Termux'u açar. Kullanıcı yapıştırır, kurulum biter, köprü başlar.
 4. `RUN_COMMAND` izni istenir (köprüyü yeniden başlatmak ve giriş ekranlarını açmak için).

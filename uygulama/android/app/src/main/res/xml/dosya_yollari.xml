@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Yalnız indirilen Termux APK'sı yükleyiciye verilir. -->
+<paths>
+    <cache-path name="termux" path="termux/"/>
+</paths>

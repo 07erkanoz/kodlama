@@ -8,6 +8,7 @@ import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
 import '../servis/kurulum_sunucusu.dart';
 import '../servis/termux.dart';
+import '../servis/termux_indir.dart';
 import '../servis/yerel_token.dart';
 
 /// İlk açılış sihirbazı. Hiçbir şey kullanıcıya sorulmadan kurulmaz;
@@ -31,6 +32,11 @@ class _KurulumEkraniState extends State<KurulumEkrani>
   bool? _termuxVar;
   bool _izinVar = false;
   final _sunucu = KurulumSunucusu();
+  final _indirici = TermuxIndirici();
+  String? _apkYolu;
+  bool _indiriliyor = false;
+  bool _izinBekleniyor = false;
+  String? _indirmeHatasi;
   String? _komut;
 
   Calisma get c => widget.calisma;
@@ -68,7 +74,65 @@ class _KurulumEkraniState extends State<KurulumEkrani>
       _termuxVar = termux;
       _izinVar = izin;
     });
+    if (_adim == 1 && termux) {
+      // Termux az önce kuruldu: sonraki adıma kendiliğinden geç.
+      await _kurulumaGec();
+      return;
+    }
+    if (_adim == 1 && _izinBekleniyor && await Termux.kurulumIzniVar()) {
+      _izinBekleniyor = false;
+      await _termuxuKur();
+      return;
+    }
     if (_adim == 2) c.istemci.baglan();
+  }
+
+  /// Resmi Termux APK'sını indirir, doğrular ve Android'in yükleme ekranını açar.
+  Future<void> _termuxuKur() async {
+    setState(() {
+      _indirmeHatasi = null;
+    });
+    if (!await Termux.kurulumIzniVar()) {
+      if (!mounted) return;
+      final tamam = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Kurulum izni'),
+          content: const Text(
+            'Atölye\'nin Termux\'u kurdurabilmesi için Android\'in "Bilinmeyen '
+            'uygulamaları yükle" iznine ihtiyacı var. Açılan ekranda Atölye için '
+            'izni aç, sonra geri dön; indirme kendiliğinden başlar.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Vazgeç'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('İzin ekranını aç'),
+            ),
+          ],
+        ),
+      );
+      if (tamam == true) {
+        _izinBekleniyor = true;
+        await Termux.kurulumIzniAc();
+      }
+      return;
+    }
+    try {
+      if (_apkYolu == null) {
+        setState(() => _indiriliyor = true);
+        _apkYolu = await _indirici.indir();
+      }
+      await Termux.apkKur(_apkYolu!);
+    } catch (e) {
+      _apkYolu = null;
+      if (mounted) setState(() => _indirmeHatasi = '$e');
+    } finally {
+      if (mounted) setState(() => _indiriliyor = false);
+    }
   }
 
   void _baglantiDegisti() {
@@ -199,6 +263,7 @@ class _KurulumEkraniState extends State<KurulumEkrani>
 
   Widget _termux(ThemeData t) {
     final var_ = _termuxVar == true;
+    final r = t.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -207,33 +272,78 @@ class _KurulumEkraniState extends State<KurulumEkrani>
         Text(
           var_
               ? 'Termux bu telefonda kurulu.'
-              : 'Termux kurulu değil. Resmi sürümü indir, Android\'in kurulum '
-                    'ekranında onayla, sonra buraya dön. Google Play\'deki '
-                    'eski sürümü kullanma.',
+              : 'Termux kurulu değil. Atölye resmi sürümü GitHub\'dan indirip '
+                    'doğrular ve Android\'in yükleme ekranını açar; orada "Yükle"ye '
+                    'basman yeterli. Kurulum bitince buraya dön.',
         ),
         const SizedBox(height: 16),
         if (!var_) ...[
           FilledButton.icon(
-            icon: const Icon(Icons.download),
-            onPressed: () => launchUrl(
-              Uri.parse(Termux.fdroidAdresi),
-              mode: LaunchMode.externalApplication,
+            icon: _indiriliyor
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download),
+            onPressed: _indiriliyor ? null : _termuxuKur,
+            label: Text(
+              _apkYolu == null
+                  ? 'Termux\'u indir ve kur'
+                  : 'Yükleme ekranını yeniden aç',
             ),
-            label: const Text('F-Droid\'den indir'),
           ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.code),
-            onPressed: () => launchUrl(
-              Uri.parse(Termux.githubAdresi),
-              mode: LaunchMode.externalApplication,
+          ValueListenableBuilder(
+            valueListenable: _indirici.ilerleme,
+            builder: (context, oran, _) => _indiriliyor || oran != null
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LinearProgressIndicator(value: oran),
+                        const SizedBox(height: 6),
+                        ValueListenableBuilder(
+                          valueListenable: _indirici.durum,
+                          builder: (context, d, _) => Text(
+                            oran != null && oran < 1
+                                ? '$d %${(oran * 100).round()}'
+                                : d,
+                            style: t.textTheme.bodySmall?.copyWith(
+                              color: r.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          if (_indirmeHatasi != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(_indirmeHatasi!, style: TextStyle(color: r.error)),
             ),
-            label: const Text('GitHub sürümlerinden indir'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              TextButton(
+                onPressed: () => launchUrl(
+                  Uri.parse(Termux.fdroidAdresi),
+                  mode: LaunchMode.externalApplication,
+                ),
+                child: const Text('F-Droid\'den kur'),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: _kontrol,
+                child: const Text('Kurdum, kontrol et'),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: _kontrol,
-            child: const Text('Kurdum, tekrar kontrol et'),
+          Text(
+            'GitHub ve F-Droid sürümleri farklı imzalıdır; Termux eklentilerini aynı kaynaktan kur.',
+            style: t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant),
           ),
         ] else
           FilledButton(onPressed: _kurulumaGec, child: const Text('Devam')),
