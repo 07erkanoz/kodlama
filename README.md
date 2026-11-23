@@ -104,6 +104,23 @@ Android dışında uygulama "Elle bağlan" ekranını açar: port ve anahtar gir
 uygulama/tool/esitle.sh
 ```
 
+## Android derlemesi ve imza
+
+```bash
+cd uygulama && flutter build apk --release --split-per-abi
+```
+
+Çıktılar `uygulama/build/app/outputs/flutter-apk/` altında; telefonların çoğu için
+`app-arm64-v8a-release.apk`.
+
+Release imzası depoda değildir: anahtar `~/atolye-imza-yedek/atolye-release.jks`, şifreler
+`uygulama/android/key.properties` dosyasında (git'e girmez; yedeği anahtarın yanında). Bu dosya
+yoksa release derlemesi debug anahtarıyla imzalanır. Yayımlanan her sürüm aynı anahtarla
+imzalanmalı; Android güncellemeyi yalnız aynı imzanın üstüne kurar. Anahtar kaybolursa uygulama
+kaldırılmadan güncellenemez, bu yüzden klasörü güvenli bir yere yedekle.
+
+Sertifika SHA-256: `0F:61:61:69:52:D5:1B:CA:A8:2E:B5:40:80:91:A9:33:32:91:98:5A:28:6C:27:80:4E:12:67:F6:9C:DD:5B:1E`
+
 ## Bilinen sınırlar ve sıradakiler
 
 - Telefonda henüz denenmedi: Claude Code ve Codex'in Termux'ta (Android, bionic) npm ile çalışması
