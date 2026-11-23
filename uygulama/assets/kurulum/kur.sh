@@ -136,7 +136,21 @@ codex_kur() {
     uyar "Codex bu işlemcide desteklenmiyor: $(uname -m)"
     return 1
   fi
-  npm install -g --os=linux --cpu="$NPM_CPU" @openai/codex && hash -r && codex --version || return 1
+  npm install -g --os=linux --cpu="$NPM_CPU" @openai/codex || return 1
+  hash -r
+
+  # npm başlatıcısındaki /usr/bin/env yolu Termux'ta bulunmaz.
+  local baslatici ilk_satir
+  baslatici="$(readlink -f "$PREFIX/bin/codex")" || return 1
+  if [ ! -x "$baslatici" ] || [ ! -x "$PREFIX/bin/node" ]; then
+    uyar "Codex başlatıcısı veya Node bulunamadı"
+    return 1
+  fi
+  IFS= read -r ilk_satir < "$baslatici" || return 1
+  if [ "$ilk_satir" = '#!/usr/bin/env node' ]; then
+    sed -i "1c\\#!$PREFIX/bin/node" "$baslatici" || return 1
+  fi
+  "$PREFIX/bin/codex" --version || return 1
 
   # Android uygulamaları zaten yalıtılmıştır; Codex'in kum aracı bubblewrap
   # burada çalışmaz (Linux namespace izni yok). Komutlar kumsuz çalışsın;
