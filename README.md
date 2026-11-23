@@ -5,7 +5,7 @@ kendi hesabıyla çalışır; Atölye bunları terminal yerine zengin bir arayü
 olarak çizilir, araç çağrıları kart olarak görünür, dosya değişiklikleri ve komutlar onay kartıyla sorulur,
 ajanın ürettiği dosyalar (resim, PDF, Markdown, kod) uygulama içinde önizlenir.
 
-Atölye hiçbir şeyi içine gömmez. Termux kendi resmi kaynağından, ajanlar kendi resmi npm paketlerinden
+Atölye hiçbir şeyi içine gömmez. Termux kendi resmi kaynağından, Codex resmi GitHub sürümünden, Claude Code resmi npm paketinden
 kurulur; giriş her CLI'ın kendi akışıyla yapılır, Atölye hesap bilgisi görmez.
 
 ## Yapı
@@ -127,8 +127,8 @@ Sertifika SHA-256: `0F:61:61:69:52:D5:1B:CA:A8:2E:B5:40:80:91:A9:33:32:91:98:5A:
 ## Bilinen sınırlar ve sıradakiler
 
 - Termux'ta Node "android" platformu görünür, ajan paketleri ise linux programı taşır:
-  - **Codex** `npm install -g --os=linux --cpu=arm64 @openai/codex` ile kurulur; programı statik
-    (musl), Android'de doğrudan çalışır.
+  - **Codex** resmi GitHub sürümündeki Linux musl ikilisinden kurulur (arm64 veya x86_64).
+    Kurulum arşivin SHA-256 özetini doğrular. Termux'ta etkileşimli kullanım için `codex --no-daemon` çalıştırılabilir.
   - **Claude Code** resmi `@anthropic-ai/claude-code-linux-arm64` paketinden indirilir, yükleyicisi
     Termux'un `glibc-repo` deposundaki glibc'ye `patchelf` ile yönlendirilir
     (`~/.atolye/claude/claude`, başlatıcı `$PREFIX/bin/claude`). Termux'un bionic `LD_PRELOAD`'ı
