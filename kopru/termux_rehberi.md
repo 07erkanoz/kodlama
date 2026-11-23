@@ -49,6 +49,9 @@ projeye gereken araçları kurmak senin işin; kullanıcı terminal kullanmak zo
 - Paylaşılan depolama (`/sdcard`, İndirilenler) için kullanıcı izin vermeli:
   `termux-setup-storage` komutu Android'in izin penceresini açar; sonra
   `~/storage/shared`, `~/storage/downloads`.
+- Codex'in kum aracı bubblewrap Android'de çalışmaz; Termux'ta `sandbox_mode =
+  "danger-full-access"` ayarlıdır ve etkileşimli `codex` `--no-daemon` ile açılır.
+  Android zaten uygulamayı yalıtır; yine de yıkıcı komutlardan önce kullanıcıya sor.
 - Kurulu değilse `termux-*` yardımcıları için `pkg install -y termux-tools`; telefon
   özellikleri (bildirim, pano, kamera) için Termux:API uygulaması + `pkg install termux-api`.
 

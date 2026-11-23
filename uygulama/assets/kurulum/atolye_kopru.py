@@ -44,7 +44,7 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.6.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.6.1"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -780,6 +780,10 @@ class CodexOturum(Oturum):
 
     def _politika(self):
         onay, sandbox = CODEX_MOD.get(self.mod, CODEX_MOD["otomatik"])
+        if TERMUX and not self.sunucu:
+            # Android'de bubblewrap çalışmaz (namespace izni yok); Termux zaten
+            # Android'in uygulama kumunda. Onaylar politikaya göre yine sorulur.
+            sandbox = "danger-full-access"
         return onay, sandbox
 
     async def _hazirla(self):

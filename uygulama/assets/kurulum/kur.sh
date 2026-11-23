@@ -136,7 +136,40 @@ codex_kur() {
     uyar "Codex bu işlemcide desteklenmiyor: $(uname -m)"
     return 1
   fi
-  npm install -g --os=linux --cpu="$NPM_CPU" @openai/codex && hash -r && codex --version
+  npm install -g --os=linux --cpu="$NPM_CPU" @openai/codex && hash -r && codex --version || return 1
+
+  # Android uygulamaları zaten yalıtılmıştır; Codex'in kum aracı bubblewrap
+  # burada çalışmaz (Linux namespace izni yok). Komutlar kumsuz çalışsın;
+  # onaylar yine onay politikasına göre sorulur.
+  local ayar="$HOME/.codex/config.toml"
+  mkdir -p "$HOME/.codex"
+  touch "$ayar"
+  if ! grep -q '^[[:space:]]*sandbox_mode' "$ayar"; then
+    # üst düzey anahtar, ilk [tablo]dan önce gelmeli: dosyanın başına yaz
+    { printf '# Atölye: Android/Termux, bubblewrap kullanılamaz\nsandbox_mode = "danger-full-access"\n\n'; cat "$ayar"; } > "$ayar.yeni"
+    mv -f "$ayar.yeni" "$ayar"
+  fi
+
+  # Etkileşimli codex arka plan sunucusu (daemon) açmaya çalışır; o da
+  # bubblewrap ister. Termux'ta etkileşimli kullanım --no-daemon ile.
+  local rc="$HOME/.bashrc"
+  touch "$rc"
+  if ! grep -q 'atolye-codex' "$rc"; then
+    cat >> "$rc" <<'RC'
+
+# atolye-codex: Android'de Codex'in arka plan sunucusu çalışmaz
+codex() {
+  case "${1:-}" in
+    exec|e|review|login|logout|mcp|mcp-server|app-server|remote-control|completion|update|doctor|sandbox|debug|apply|a|cloud|features|help|plugin|--version|-V|--help|-h)
+      command codex "$@" ;;
+    resume|fork)
+      local alt="$1"; shift; command codex "$alt" --no-daemon "$@" ;;
+    *)
+      command codex --no-daemon "$@" ;;
+  esac
+}
+RC
+  fi
 }
 
 IFS=',' read -ra SECILEN <<< "$AJANLAR"
