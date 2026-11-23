@@ -1,0 +1,256 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import '../servis/kopru_istemci.dart';
+
+/// Sohbette görünen bir öğe. Köprünün olaylarından kurulur; geçmiş de canlı
+/// akış da aynı [Sohbet.isle] yolundan geçer.
+sealed class Oge {}
+
+class KullaniciOge extends Oge {
+  KullaniciOge(this.metin, this.ekler);
+  final String metin;
+  final List<String> ekler;
+}
+
+class MetinOge extends Oge {
+  MetinOge(this.anahtar, this.metin, {this.akiyor = false});
+  final String anahtar;
+  String metin;
+  bool akiyor;
+}
+
+class AracOge extends Oge {
+  AracOge(this.aid, this.ad, this.ozet, this.girdi);
+  final String aid;
+  final String ad;
+  final String ozet;
+  final String girdi;
+  String? cikti;
+  bool hata = false;
+  bool bitti = false;
+}
+
+class OnayOge extends Oge {
+  OnayOge(this.rid, this.arac, this.ozet, this.girdi, this.neden);
+  final String rid;
+  final String arac;
+  final String ozet;
+  final String girdi;
+  final String neden;
+  bool kapandi = false;
+  String? karar;
+}
+
+class DosyaOge extends Oge {
+  DosyaOge(this.yol, this.goreli, this.eylem);
+  final String yol;
+  final String goreli;
+  final String eylem;
+}
+
+class BittiOge extends Oge {
+  BittiOge(this.hata, this.maliyet);
+  final String? hata;
+  final double? maliyet;
+}
+
+class UyariOge extends Oge {
+  UyariOge(this.metin);
+  final String metin;
+}
+
+/// Bir oturumun sohbeti: öğeler, durum, bekleyen onaylar.
+class Sohbet extends ChangeNotifier {
+  Sohbet(this.istemci, Map<String, dynamic> ozet) : _ozet = ozet {
+    _abone = istemci.olaylar.listen((m) {
+      if (m['oturum'] == id) isle(m);
+    });
+  }
+
+  final KopruIstemci istemci;
+  Map<String, dynamic> _ozet;
+  StreamSubscription? _abone;
+
+  final ogeler = <Oge>[];
+  final _metinler = <String, MetinOge>{};
+  final _araclar = <String, AracOge>{};
+  final _onaylar = <String, OnayOge>{};
+  bool yukleniyor = false;
+
+  String get id => _ozet['id'] as String;
+  String get ajan => _ozet['ajan'] as String;
+  String get cwd => _ozet['cwd'] as String;
+  String get baslik => (_ozet['baslik'] as String?) ?? '';
+  String get mod => (_ozet['mod'] as String?) ?? 'sor';
+  bool get calisiyor => _ozet['durum'] == 'calisiyor';
+
+  /// Bu oturumda değişen ya da üretilen dosyalar, en yenisi önce.
+  List<DosyaOge> get dosyalar {
+    final gorulen = <String>{};
+    return [
+      for (final o in ogeler.reversed)
+        if (o is DosyaOge && o.eylem != 'silindi' && gorulen.add(o.yol)) o,
+    ];
+  }
+
+  Future<void> gecmisiYukle() async {
+    yukleniyor = true;
+    notifyListeners();
+    try {
+      final r = await istemci.iste('gecmis', {'oturum': id});
+      _ozet = (r['oturum'] as Map).cast<String, dynamic>();
+      ogeler.clear();
+      _metinler.clear();
+      _araclar.clear();
+      _onaylar.clear();
+      final bekleyen = ((r['bekleyen'] as List?) ?? const []).toSet();
+      for (final e in (r['olaylar'] as List? ?? const [])) {
+        isle((e as Map).cast<String, dynamic>(), bildir: false);
+      }
+      // geçmişte kalan, artık beklenmeyen onaylar kapalı görünsün
+      for (final o in _onaylar.values) {
+        if (!bekleyen.contains(o.rid)) o.kapandi = true;
+      }
+    } finally {
+      yukleniyor = false;
+      notifyListeners();
+    }
+  }
+
+  void isle(Map<String, dynamic> e, {bool bildir = true}) {
+    switch (e['ev']) {
+      case 'kullanici':
+        ogeler.add(
+          KullaniciOge(
+            e['metin'] as String? ?? '',
+            ((e['ekler'] as List?) ?? const []).cast<String>(),
+          ),
+        );
+      case 'parca':
+        final anahtar = e['anahtar'] as String? ?? '';
+        final var_ = _metinler[anahtar];
+        if (var_ != null) {
+          var_.metin += e['metin'] as String? ?? '';
+        } else {
+          final o = MetinOge(
+            anahtar,
+            e['metin'] as String? ?? '',
+            akiyor: true,
+          );
+          _metinler[anahtar] = o;
+          ogeler.add(o);
+        }
+      case 'metin':
+        final anahtar = e['anahtar'] as String? ?? '';
+        final var_ = _metinler[anahtar];
+        if (var_ != null) {
+          var_
+            ..metin = e['metin'] as String? ?? ''
+            ..akiyor = false;
+        } else {
+          final o = MetinOge(anahtar, e['metin'] as String? ?? '');
+          _metinler[anahtar] = o;
+          ogeler.add(o);
+        }
+      case 'arac':
+        final o = AracOge(
+          e['aid'] as String? ?? '',
+          e['ad'] as String? ?? '?',
+          e['ozet'] as String? ?? '',
+          e['girdi'] as String? ?? '',
+        );
+        _araclar[o.aid] = o;
+        ogeler.add(o);
+      case 'arac_sonuc':
+        final o = _araclar[e['aid']];
+        if (o != null) {
+          o
+            ..cikti = e['cikti'] as String?
+            ..hata = e['hata'] == true
+            ..bitti = true;
+        }
+      case 'onay':
+        final o = OnayOge(
+          e['rid'] as String,
+          e['arac'] as String? ?? '?',
+          e['ozet'] as String? ?? '',
+          e['girdi'] as String? ?? '',
+          e['neden'] as String? ?? '',
+        );
+        _onaylar[o.rid] = o;
+        ogeler.add(o);
+      case 'onay_kapandi':
+        _onaylar[e['rid']]?.kapandi = true;
+      case 'dosya':
+        ogeler.add(
+          DosyaOge(
+            e['yol'] as String,
+            e['goreli'] as String? ?? e['yol'] as String,
+            e['eylem'] as String? ?? 'degisti',
+          ),
+        );
+      case 'bitti':
+        for (final m in _metinler.values) {
+          m.akiyor = false;
+        }
+        for (final a in _araclar.values) {
+          a.bitti = true;
+        }
+        ogeler.add(
+          BittiOge(e['hata'] as String?, (e['maliyet'] as num?)?.toDouble()),
+        );
+      case 'uyari':
+        ogeler.add(UyariOge(e['metin'] as String? ?? ''));
+      case 'durum':
+        _ozet = {..._ozet, 'durum': e['durum']};
+      case 'oturum':
+        _ozet = (e['ozet'] as Map).cast<String, dynamic>();
+      default:
+        return;
+    }
+    if (bildir) notifyListeners();
+  }
+
+  Future<void> gonder(String metin, {List<String> ekler = const []}) async {
+    _ozet = {..._ozet, 'durum': 'calisiyor'};
+    notifyListeners();
+    await istemci.iste('gonder', {
+      'oturum': id,
+      'metin': metin,
+      'ekler': ekler,
+    });
+  }
+
+  Future<void> durdur() => istemci.iste('durdur', {'oturum': id});
+
+  Future<void> onayla(OnayOge o, String karar) async {
+    o
+      ..karar = karar
+      ..kapandi = true;
+    notifyListeners();
+    await istemci.iste('onay', {'oturum': id, 'rid': o.rid, 'karar': karar});
+  }
+
+  Future<void> modDegistir(String yeni) async {
+    final r = await istemci.iste('mod', {'oturum': id, 'mod': yeni});
+    _ozet = (r['oturum'] as Map).cast<String, dynamic>();
+    notifyListeners();
+  }
+
+  Future<String> ekYukle(String ad, String base64Veri) async {
+    final r = await istemci.iste('yukle', {
+      'oturum': id,
+      'ad': ad,
+      'veri': base64Veri,
+    });
+    return r['yol'] as String;
+  }
+
+  @override
+  void dispose() {
+    _abone?.cancel();
+    super.dispose();
+  }
+}
