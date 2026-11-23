@@ -27,6 +27,11 @@ class Calisma extends ChangeNotifier {
   List<Map<String, dynamic>> ajanlar = [];
   List<Map<String, dynamic>> projeler = [];
   List<Map<String, dynamic>> sunucular = [];
+
+  /// Ajana göre seçilebilecek modeller (köprüden, bir kez yüklenir).
+  final modeller = <String, List<Map<String, dynamic>>>{};
+  Map<String, String> effortAdlari = const {};
+  final _modelYukleniyor = <String>{};
   Map<String, List<dynamic>> kotalar = {};
   String? kok;
   Sohbet? secili;
@@ -134,11 +139,15 @@ class Calisma extends ChangeNotifier {
   Future<void> yeniOturum({
     required String ajan,
     required String cwd,
-    String mod = 'sor',
+    String mod = 'otomatik',
     String? sunucu,
     String? uzakKlasor,
+    String? model,
+    String? effort,
   }) async {
     final r = await istemci.iste('oturum_ac', {
+      'model': ?model,
+      'effort': ?effort,
       'ajan': ajan,
       'cwd': cwd,
       'mod': mod,
@@ -148,6 +157,25 @@ class Calisma extends ChangeNotifier {
     final ozet = (r['oturum'] as Map).cast<String, dynamic>();
     oturumlar = [ozet, ...oturumlar];
     await sec(ozet);
+  }
+
+  Future<void> modelleriYukle(String ajan) async {
+    if (modeller.containsKey(ajan) || !_modelYukleniyor.add(ajan)) return;
+    try {
+      final r = await istemci.iste('modeller', {'ajan': ajan});
+      modeller[ajan] = ((r['modeller'] as List?) ?? const [])
+          .cast<Map>()
+          .map((m) => m.cast<String, dynamic>())
+          .toList();
+      effortAdlari = ((r['effort_adlari'] as Map?) ?? const {}).map(
+        (k, v) => MapEntry(k as String, v as String),
+      );
+      notifyListeners();
+    } catch (_) {
+      // bağlantı yoksa sonra yeniden denenir
+    } finally {
+      _modelYukleniyor.remove(ajan);
+    }
   }
 
   /// Seçili oturumdan çık: başlangıç ekranına dön.
@@ -163,11 +191,15 @@ class Calisma extends ChangeNotifier {
     required String ajan,
     required String cwd,
     required String metin,
-    String mod = 'sor',
+    String mod = 'otomatik',
     String? sunucu,
     String? uzakKlasor,
+    String? model,
+    String? effort,
   }) async {
     await yeniOturum(
+      model: model,
+      effort: effort,
       ajan: ajan,
       cwd: cwd,
       mod: mod,

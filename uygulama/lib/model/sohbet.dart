@@ -85,7 +85,9 @@ class Sohbet extends ChangeNotifier {
   String get baslik => (_ozet['baslik'] as String?) ?? '';
   String? get sunucu => _ozet['sunucu'] as String?;
   String? get uzakKlasor => _ozet['uzak_klasor'] as String?;
-  String get mod => (_ozet['mod'] as String?) ?? 'sor';
+  String get mod => (_ozet['mod'] as String?) ?? 'otomatik';
+  String? get model => _ozet['model'] as String?;
+  String? get effort => _ozet['effort'] as String?;
   bool get calisiyor => _ozet['durum'] == 'calisiyor';
 
   /// Bu oturumda değişen ya da üretilen dosyalar, en yenisi önce.
@@ -235,8 +237,12 @@ class Sohbet extends ChangeNotifier {
     await istemci.iste('onay', {'oturum': id, 'rid': o.rid, 'karar': karar});
   }
 
-  Future<void> modDegistir(String yeni) async {
-    final r = await istemci.iste('mod', {'oturum': id, 'mod': yeni});
+  Future<void> modDegistir(String yeni) => ayarla({'mod': yeni});
+
+  /// Model, effort ya da çalışma biçimini değiştirir; null değer CLI'ın
+  /// varsayılanına döner. Ajan süreci yeni ayarla, oturum sürdürülerek açılır.
+  Future<void> ayarla(Map<String, Object?> degisiklik) async {
+    final r = await istemci.iste('ayar', {'oturum': id, ...degisiklik});
     _ozet = (r['oturum'] as Map).cast<String, dynamic>();
     notifyListeners();
   }

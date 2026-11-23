@@ -153,6 +153,7 @@ class _MesajKutusuState extends State<MesajKutusu> {
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 0, 8, 8),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 if (widget.ekle != null)
                   IconButton(
@@ -161,16 +162,12 @@ class _MesajKutusuState extends State<MesajKutusu> {
                     icon: const Icon(Icons.add_circle_outline, size: 22),
                   ),
                 Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final c in widget.cipler)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: c,
-                          ),
-                      ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: widget.cipler,
                     ),
                   ),
                 ),
@@ -290,6 +287,12 @@ class SecimCipi<T> extends StatelessWidget {
 
 /// Çalışma biçimleri: CLI'ların onay ayarlarına karşılık gelir.
 const calismaBicimleri = <(String, String, String, IconData)>[
+  (
+    'otomatik',
+    'Otomatik',
+    'Güvenli işleri kendisi onaylar, yalnız riskli olanları sorar',
+    Icons.auto_mode,
+  ),
   ('sor', 'Sor', 'Her değişiklik ve komut için onay', Icons.back_hand_outlined),
   (
     'duzenle',

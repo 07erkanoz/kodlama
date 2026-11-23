@@ -53,11 +53,15 @@ CIKTI_SINIRI = 4000
 TARAMA_SINIRI = 20000
 
 # Kullanıcının seçtiği çalışma biçimi → her CLI'ın kendi ayarı.
+#   otomatik: ajan güvenli işleri kendisi onaylar (varsayılan)
 #   sor     : her değişiklik ve komut için onay istenir
 #   duzenle : dosya düzenlemeleri serbest, komutlar için onay
 #   serbest : onay istenmez
-CLAUDE_MOD = {"sor": "default", "duzenle": "acceptEdits", "serbest": "bypassPermissions", "plan": "plan"}
+#   otomatik: güvenli işleri ajan kendisi onaylar, yalnız riskli olanlar sorulur
+CLAUDE_MOD = {"otomatik": "auto", "sor": "default", "duzenle": "acceptEdits",
+              "serbest": "bypassPermissions", "plan": "plan"}
 CODEX_MOD = {
+    "otomatik": ("on-request", "workspace-write"),
     "sor": ("untrusted", "workspace-write"),
     "duzenle": ("on-request", "workspace-write"),
     "serbest": ("never", "danger-full-access"),
@@ -428,8 +432,9 @@ class Oturum:
         self.cwd = Path(veri["cwd"])
         self.baslik: str = veri.get("baslik") or self.cwd.name
         self.sid: str | None = veri.get("sid")
-        self.mod: str = veri.get("mod", "sor")
+        self.mod: str = veri.get("mod", "otomatik")
         self.model: str | None = veri.get("model")
+        self.effort: str | None = veri.get("effort")
         self.sunucu: str | None = veri.get("sunucu")  # uzak sunucu adı (yoksa bu cihaz)
         self.uzak_klasor: str | None = veri.get("uzak_klasor")
         self.olusturma: float = veri.get("olusturma", simdi())
@@ -445,7 +450,7 @@ class Oturum:
     def veri(self) -> dict:
         return {
             "id": self.id, "ajan": self.ajan, "cwd": str(self.cwd), "baslik": self.baslik,
-            "sid": self.sid, "mod": self.mod, "model": self.model,
+            "sid": self.sid, "mod": self.mod, "model": self.model, "effort": self.effort,
             "olusturma": self.olusturma, "guncelleme": self.guncelleme,
             "sunucu": self.sunucu, "uzak_klasor": self.uzak_klasor,
         }
@@ -608,6 +613,8 @@ class ClaudeOturum(Oturum):
              "--permission-mode", CLAUDE_MOD.get(self.mod, "default")]
         if self.model:
             a += ["--model", self.model]
+        if self.effort:
+            a += ["--effort", self.effort]
         if self.sid:
             a += ["--resume", self.sid]
         return a
@@ -755,7 +762,7 @@ class CodexOturum(Oturum):
         return await f
 
     def _politika(self):
-        onay, sandbox = CODEX_MOD.get(self.mod, CODEX_MOD["sor"])
+        onay, sandbox = CODEX_MOD.get(self.mod, CODEX_MOD["otomatik"])
         return onay, sandbox
 
     async def _hazirla(self):
@@ -801,6 +808,10 @@ class CodexOturum(Oturum):
             pol["networkAccess"] = True
         prm = {"threadId": self.sid, "input": girdi, "cwd": self.uzak_klasor if self.sunucu else str(self.cwd),
                "approvalPolicy": onay, "sandboxPolicy": pol}
+        if self.model:
+            prm["model"] = self.model
+        if self.effort:
+            prm["effort"] = self.effort
         try:
             sonuc = await self._rpc("turn/start", prm)
             self.tur = sonuc["turn"]["id"]
@@ -919,6 +930,17 @@ class CodexOturum(Oturum):
 
 SURUCULER = {"claude": ClaudeOturum, "codex": CodexOturum}
 
+EFFORT_ADLARI = {"low": "Düşük", "medium": "Orta", "high": "Yüksek", "xhigh": "Çok yüksek",
+                 "max": "En yüksek", "ultra": "Ultra", "minimal": "En az", "none": "Yok"}
+
+CLAUDE_MODELLERI = [
+    {"id": "opus", "ad": "Opus", "aciklama": "En güçlü, karmaşık işler"},
+    {"id": "sonnet", "ad": "Sonnet", "aciklama": "Hızlı ve dengeli"},
+    {"id": "fable", "ad": "Fable", "aciklama": "Uzun ve derin işler"},
+    {"id": "haiku", "ad": "Haiku", "aciklama": "En hızlı, basit işler"},
+]
+CLAUDE_EFFORTLARI = ["low", "medium", "high", "xhigh", "max"]
+
 
 # ---------------------------------------------------------------- köprü
 
@@ -929,6 +951,7 @@ class Kopru:
         self.istemciler: set = set()
         self.oturumlar: dict[str, Oturum] = {}
         self.kotalar: dict[str, list] = {}
+        self._codex_modelleri: tuple[float, list] | None = None
         (EV / "kayit").mkdir(parents=True, exist_ok=True)
         KOK.mkdir(parents=True, exist_ok=True)
         self._yukle()
@@ -985,6 +1008,60 @@ class Kopru:
         self.yayinla({"ev": "kota", "ajan": ajan, "pencereler": pencereler})
 
     # --- istekler
+
+    async def modeller(self, ajan: str) -> list[dict]:
+        """Seçilebilecek modeller ve her birinin effort düzeyleri."""
+        if ajan == "claude":
+            return [dict(m, effortlar=CLAUDE_EFFORTLARI, varsayilan_effort=None) for m in CLAUDE_MODELLERI]
+        if ajan != "codex":
+            return []
+        if self._codex_modelleri and simdi() - self._codex_modelleri[0] < 600:
+            return self._codex_modelleri[1]
+        yol = shutil.which("codex")
+        if not yol:
+            return []
+        p = await asyncio.create_subprocess_exec(yol, "app-server", stdin=asyncio.subprocess.PIPE,
+                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+
+        async def yaz(o):
+            p.stdin.write((json.dumps(o) + "\n").encode())
+            await p.stdin.drain()
+
+        async def bekle(no):
+            while True:
+                satir = await p.stdout.readline()
+                if not satir:
+                    raise RuntimeError("codex yanıt vermedi")
+                try:
+                    j = json.loads(satir)
+                except ValueError:
+                    continue
+                if j.get("id") == no:
+                    return j
+
+        try:
+            await yaz({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                       "params": {"clientInfo": {"name": "atolye", "version": SURUM}}})
+            await asyncio.wait_for(bekle(1), 20)
+            await yaz({"jsonrpc": "2.0", "method": "initialized"})
+            await yaz({"jsonrpc": "2.0", "id": 2, "method": "model/list", "params": {}})
+            yanit = await asyncio.wait_for(bekle(2), 30)
+        finally:
+            try:
+                p.kill()
+            except ProcessLookupError:
+                pass
+        out = []
+        for m in (yanit.get("result") or {}).get("data") or []:
+            if m.get("hidden"):
+                continue
+            effortlar = [e.get("reasoningEffort") if isinstance(e, dict) else e
+                         for e in m.get("supportedReasoningEfforts") or []]
+            out.append({"id": m.get("model") or m.get("id"), "ad": m.get("displayName") or m.get("id"),
+                        "aciklama": m.get("description") or "", "varsayilan": bool(m.get("isDefault")),
+                        "effortlar": [e for e in effortlar if e], "varsayilan_effort": m.get("defaultReasoningEffort")})
+        self._codex_modelleri = (simdi(), out)
+        return out
 
     async def ajanlar(self):
         out = []
@@ -1081,7 +1158,8 @@ class Kopru:
                     raise ValueError("klasör yok")
                 baslik = m.get("baslik")
             o = SURUCULER[ajan](self, {"id": uuid.uuid4().hex[:12], "ajan": ajan, "cwd": str(cwd),
-                                        "mod": m.get("mod", "sor"), "model": m.get("model") or None,
+                                        "mod": m.get("mod", "otomatik"), "model": m.get("model") or None,
+                                        "effort": m.get("effort") or None,
                                         "baslik": baslik, "sunucu": sunucu, "uzak_klasor": uzak})
             self.oturumlar[o.id] = o
             self.oturumlari_kaydet()
@@ -1120,12 +1198,21 @@ class Kopru:
         if op == "onay":
             await self._oturum(m).onayla(m.get("rid"), m.get("karar", "red"))
             return {}
-        if op == "mod":
+        if op in ("mod", "ayar"):
             o = self._oturum(m)
-            o.mod = m.get("mod", o.mod)
+            if "mod" in m:
+                o.mod = m["mod"] or "otomatik"
+            if "model" in m:
+                o.model = m["model"] or None
+            if "effort" in m:
+                o.effort = m["effort"] or None
             await o.kapat()  # yeni ayarla, aynı oturumu sürdürerek yeniden açılır
             self.oturumlari_kaydet()
-            return {"oturum": o.ozet()}
+            ozet = o.ozet()
+            self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": ozet})
+            return {"oturum": ozet}
+        if op == "modeller":
+            return {"modeller": await self.modeller(m.get("ajan", "claude")), "effort_adlari": EFFORT_ADLARI}
         if op == "listele":
             return self.listele(m.get("yol") or KOK)
         if op == "oku":

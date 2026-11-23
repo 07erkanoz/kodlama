@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../arayuz/ajan_ayarlari.dart';
 import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
@@ -21,7 +22,9 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
   final _yazi = TextEditingController();
   String? _proje;
   String? _ajan;
-  String _mod = 'sor';
+  String _mod = 'otomatik';
+  String? _model;
+  String? _effort;
 
   /// Boşsa bu cihaz; değilse kayıtlı SSH sunucusunun adı.
   String? _sunucu;
@@ -88,6 +91,8 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
         cwd: proje ?? '',
         metin: metin,
         mod: _mod,
+        model: _model,
+        effort: _effort,
         sunucu: sunucu?['ad'] as String?,
         uzakKlasor: sunucu == null
             ? null
@@ -220,7 +225,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                       const SizedBox(height: 6),
                       Text(
                         bagli
-                            ? 'Bir proje seç, ne istediğini yaz. Ajan telefonundaki dosyalarda çalışır; her değişiklik için onayın istenir.'
+                            ? 'Bir proje seç, ne istediğini yaz. Ajan telefonundaki dosyalarda çalışır; Otomatik biçimde yalnız riskli işler için onayın istenir.'
                             : 'Köprüye bağlanılıyor… Termux\'ta "atolye-kopru" çalışıyor olmalı.',
                         textAlign: dar ? TextAlign.start : TextAlign.center,
                         style: t.textTheme.bodyMedium?.copyWith(
@@ -322,19 +327,28 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                                   a['kurulu'] == true,
                                 ),
                             ],
-                            secildi: (v) => setState(() => _ajan = v),
+                            secildi: (v) => setState(() {
+                              if (v != _ajan) {
+                                _model = null;
+                                _effort = null;
+                              }
+                              _ajan = v;
+                            }),
                           ),
-                          SecimCipi<String>(
-                            simge: Icon(bicim(_mod).$4),
-                            etiket: bicim(_mod).$2,
-                            ipucu: 'Çalışma biçimi',
-                            secili: _mod,
-                            secenekler: [
-                              for (final b in calismaBicimleri)
-                                (b.$1, b.$2, b.$3, true),
-                            ],
-                            secildi: (v) => setState(() => _mod = v),
-                          ),
+                          if (ajan != null)
+                            ...ajanAyarCipleri(
+                              calisma: c,
+                              ajan: ajan,
+                              model: _model,
+                              effort: _effort,
+                              mod: _mod,
+                              modelSec: (v) => setState(() {
+                                _model = v;
+                                _effort = uygunEffort(c, ajan, v, _effort);
+                              }),
+                              effortSec: (v) => setState(() => _effort = v),
+                              modSec: (v) => setState(() => _mod = v),
+                            ),
                         ],
                       ),
                       const SizedBox(height: 14),

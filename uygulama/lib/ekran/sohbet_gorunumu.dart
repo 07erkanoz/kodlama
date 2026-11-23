@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../arayuz/ajan_ayarlari.dart';
 import '../arayuz/markdown.dart';
 import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
@@ -225,20 +226,25 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                       ipucu: s.calisiyor
                           ? 'Araya yaz — çalışan işe eklenir'
                           : 'Devam et…',
-                      cipler: [
-                        SecimCipi<String>(
-                          simge: Icon(bicim(s.mod).$4),
-                          etiket: bicim(s.mod).$2,
-                          ipucu: 'Çalışma biçimi',
-                          etkin: !s.calisiyor,
-                          secili: s.mod,
-                          secenekler: [
-                            for (final b in calismaBicimleri)
-                              (b.$1, b.$2, b.$3, true),
-                          ],
-                          secildi: s.modDegistir,
-                        ),
-                      ],
+                      cipler: ajanAyarCipleri(
+                        calisma: widget.calisma,
+                        ajan: s.ajan,
+                        model: s.model,
+                        effort: s.effort,
+                        mod: s.mod,
+                        etkin: !s.calisiyor,
+                        modelSec: (v) => s.ayarla({
+                          'model': v,
+                          'effort': uygunEffort(
+                            widget.calisma,
+                            s.ajan,
+                            v,
+                            s.effort,
+                          ),
+                        }),
+                        effortSec: (v) => s.ayarla({'effort': v}),
+                        modSec: s.modDegistir,
+                      ),
                     ),
                   ),
                 ),
