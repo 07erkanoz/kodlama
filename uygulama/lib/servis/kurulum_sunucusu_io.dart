@@ -47,6 +47,21 @@ class KurulumSunucusu {
     _sunucu = null;
   }
 
+  /// Yalnız köprüyü (ve ajan rehberini) yenileyip köprüyü yeniden başlatır;
+  /// paket kurmaz, saniyeler sürer.
+  ///
+  /// Eski köprü süreci `^python .*atolye_kopru` ile bulunur: bu kalıp komutu
+  /// çalıştıran kabuğun kendi satırına uymaz (o "bash" ile başlar).
+  String guncellemeKomutu() {
+    final k = 'http://127.0.0.1:$port/$_gizli';
+    const d = r'$HOME/.atolye/kopru';
+    return 'mkdir -p "$d" && '
+        'curl -fsS $k/atolye_kopru.py -o "$d/yeni.py" && '
+        'mv -f "$d/yeni.py" "$d/atolye_kopru.py" && '
+        'curl -fsS $k/termux_rehberi.md -o "$d/termux_rehberi.md"; '
+        "pkill -f '^python .*atolye_kopru'; sleep 1; exec atolye-kopru";
+  }
+
   /// Kullanıcının Termux'a yapıştıracağı tek satır.
   ///
   /// Yeni kurulmuş Termux'ta paket listesi eskidir: önce depo güncellenir ve

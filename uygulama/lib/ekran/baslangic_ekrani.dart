@@ -5,6 +5,7 @@ import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
+import '../servis/termux.dart';
 import 'klonla_penceresi.dart';
 
 /// Oturum seçili değilken açılan ekran: proje ve ajan seçilir, ilk mesaj
@@ -151,6 +152,21 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
     }
   }
 
+  Future<void> _ajanKur(String ajan) async {
+    final acildi = await c.kurulumuYenile(ajanlar: [ajan]);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 6),
+        content: Text(
+          acildi
+              ? '${ajanAdi(ajan)} kurulumu Termux\'ta başladı. Bitince Atölye\'ye dön.'
+              : 'Kurulum komutu kopyalandı: Termux\'ta uzun bas → Paste → Enter.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _yeniProje() async {
     final ad = TextEditingController();
     final sonuc = await showDialog<String>(
@@ -215,6 +231,10 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (c.kopruEski) ...[
+                        _KopruUyarisi(calisma: c),
+                        const SizedBox(height: 20),
+                      ],
                       Text(
                         'Ne üzerinde çalışalım?',
                         textAlign: dar ? TextAlign.start : TextAlign.center,
@@ -331,14 +351,24 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                                       : 'kurulu değil',
                                   a['kurulu'] == true,
                                 ),
+                              for (final a in c.ajanlar)
+                                if (a['kurulu'] != true && Termux.destekleniyor)
+                                  (
+                                    'kur:${a['ad']}',
+                                    '+ ${ajanAdi(a['ad'] as String)}\'i kur',
+                                    'Termux\'ta kurulumu başlatır',
+                                    true,
+                                  ),
                             ],
-                            secildi: (v) => setState(() {
-                              if (v != _ajan) {
-                                _model = null;
-                                _effort = null;
-                              }
-                              _ajan = v;
-                            }),
+                            secildi: (v) => v.startsWith('kur:')
+                                ? _ajanKur(v.substring(4))
+                                : setState(() {
+                                    if (v != _ajan) {
+                                      _model = null;
+                                      _effort = null;
+                                    }
+                                    _ajan = v;
+                                  }),
                           ),
                           if (ajan != null)
                             ...ajanAyarCipleri(
@@ -570,6 +600,65 @@ class _ProjeKarti extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Telefondaki köprü bu uygulamadan eskiyse: tek dokunuşla güncelle.
+class _KopruUyarisi extends StatelessWidget {
+  const _KopruUyarisi({required this.calisma});
+  final Calisma calisma;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF59E0B).withValues(alpha: .12),
+        border: Border.all(
+          color: const Color(0xFFF59E0B).withValues(alpha: .5),
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.system_update, color: Color(0xFFF59E0B)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Termux\'taki köprü eski (${calisma.kopruSurumu}). Model ve düşünme seçimi, '
+              'araç listesi gibi yeni özellikler için güncelle.',
+              style: t.textTheme.bodySmall?.copyWith(color: r.onSurface),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: calisma.kopruGuncelleniyor || !Termux.destekleniyor
+                ? null
+                : () async {
+                    final tamam = await calisma.kopruyuGuncelle();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            tamam ? 'Köprü güncellendi.' : 'Güncellenemedi; Ayarlar → Köprü → "Kurulumu yeniden çalıştır".',
+                          ),
+                        ),
+                      );
+                    }
+                  },
+            child: calisma.kopruGuncelleniyor
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Güncelle'),
+          ),
+        ],
       ),
     );
   }

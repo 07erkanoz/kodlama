@@ -4,4 +4,5 @@ class KurulumSunucusu {
   Future<void> durdur() async {}
   int? get port => null;
   String komut({required String token, required List<String> ajanlar}) => '';
+  String guncellemeKomutu() => '';
 }

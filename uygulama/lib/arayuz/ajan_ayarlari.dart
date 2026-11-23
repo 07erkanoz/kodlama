@@ -3,6 +3,48 @@ import 'package:flutter/material.dart';
 import '../model/calisma.dart';
 import 'mesaj_kutusu.dart';
 
+/// Köprü model listesini veremezse (eski köprü, bağlantı yok) kullanılan
+/// yerleşik liste. Claude CLI takma adları her zaman en güncel modele gider.
+const _yedekModeller = <String, List<Map<String, dynamic>>>{
+  'claude': [
+    {
+      'id': 'opus',
+      'ad': 'Opus',
+      'aciklama': 'En güçlü, karmaşık işler',
+      'effortlar': _claudeEffort,
+    },
+    {
+      'id': 'sonnet',
+      'ad': 'Sonnet',
+      'aciklama': 'Hızlı ve dengeli',
+      'effortlar': _claudeEffort,
+    },
+    {
+      'id': 'fable',
+      'ad': 'Fable',
+      'aciklama': 'Uzun ve derin işler',
+      'effortlar': _claudeEffort,
+    },
+    {
+      'id': 'haiku',
+      'ad': 'Haiku',
+      'aciklama': 'En hızlı, basit işler',
+      'effortlar': _claudeEffort,
+    },
+  ],
+};
+const _claudeEffort = ['low', 'medium', 'high', 'xhigh', 'max'];
+const _yedekEffort = ['low', 'medium', 'high', 'xhigh'];
+const _effortAdlari = {
+  'minimal': 'En az',
+  'low': 'Düşük',
+  'medium': 'Orta',
+  'high': 'Yüksek',
+  'xhigh': 'Çok yüksek',
+  'max': 'En yüksek',
+  'ultra': 'Ultra',
+};
+
 /// Mesaj kutusunun altındaki ajan ayarları: model, düşünme gücü (effort) ve
 /// çalışma biçimi. Boş seçim (null) CLI'ın kendi varsayılanı demektir.
 List<Widget> ajanAyarCipleri({
@@ -16,8 +58,11 @@ List<Widget> ajanAyarCipleri({
   required void Function(String mod) modSec,
   bool etkin = true,
 }) {
-  final modeller = calisma.modeller[ajan] ?? const [];
-  if (modeller.isEmpty) calisma.modelleriYukle(ajan);
+  var modeller = calisma.modeller[ajan] ?? const <Map<String, dynamic>>[];
+  if (modeller.isEmpty) {
+    calisma.modelleriYukle(ajan);
+    modeller = _yedekModeller[ajan] ?? const [];
+  }
   final seciliModel =
       modeller.where((m) => m['id'] == model).firstOrNull ??
       (model == null
@@ -26,8 +71,9 @@ List<Widget> ajanAyarCipleri({
   final effortlar =
       ((seciliModel ?? modeller.firstOrNull)?['effortlar'] as List?)
           ?.cast<String>() ??
-      const <String>[];
-  String effortAdi(String e) => calisma.effortAdlari[e] ?? e;
+      _yedekEffort;
+  String effortAdi(String e) =>
+      calisma.effortAdlari[e] ?? _effortAdlari[e] ?? e;
 
   return [
     SecimCipi<String>(

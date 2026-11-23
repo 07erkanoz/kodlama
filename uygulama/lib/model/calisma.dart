@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../servis/ayarlar.dart';
 import '../servis/kopru_istemci.dart';
+import '../servis/kurulum_sunucusu.dart';
 import '../servis/termux.dart';
 import 'sohbet.dart';
 
@@ -26,12 +27,34 @@ class Calisma extends ChangeNotifier {
   List<Map<String, dynamic>> oturumlar = [];
   List<Map<String, dynamic>> ajanlar = [];
   List<Map<String, dynamic>> projeler = [];
+
+  /// Bu uygulamanın beklediği en düşük köprü sürümü. Köprüye yeni bir işlem
+  /// eklenince artırılır; telefondaki köprü daha eskiyse güncelleme önerilir.
+  static const gerekenKopruSurumu = '0.6.0';
+  String? kopruSurumu;
+  bool kopruGuncelleniyor = false;
+  KurulumSunucusu? _kurulumSunucusu;
+
+  bool get kopruEski {
+    final s = kopruSurumu;
+    if (s == null) return false;
+    List<int> p(String v) =>
+        v.split('.').map((x) => int.tryParse(x) ?? 0).toList();
+    final a = p(s), b = p(gerekenKopruSurumu);
+    for (var i = 0; i < 3; i++) {
+      final x = i < a.length ? a[i] : 0, y = i < b.length ? b[i] : 0;
+      if (x != y) return x < y;
+    }
+    return false;
+  }
+
   List<Map<String, dynamic>> sunucular = [];
 
   /// Ajana göre seçilebilecek modeller (köprüden, bir kez yüklenir).
   final modeller = <String, List<Map<String, dynamic>>>{};
   Map<String, String> effortAdlari = const {};
   final _modelYukleniyor = <String>{};
+  final _modelHatasi = <String, DateTime>{};
   Map<String, List<dynamic>> kotalar = {};
   String? kok;
   Sohbet? secili;
@@ -94,6 +117,7 @@ class Calisma extends ChangeNotifier {
   Future<void> yenile() async {
     try {
       final d = await istemci.iste('durum');
+      kopruSurumu = d['surum'] as String?;
       ajanlar = ((d['ajanlar'] as List?) ?? const [])
           .cast<Map>()
           .map((m) => m.cast<String, dynamic>())
@@ -160,7 +184,10 @@ class Calisma extends ChangeNotifier {
   }
 
   Future<void> modelleriYukle(String ajan) async {
-    if (modeller.containsKey(ajan) || !_modelYukleniyor.add(ajan)) return;
+    if (modeller.containsKey(ajan)) return;
+    final hata = _modelHatasi[ajan];
+    if (hata != null && DateTime.now().difference(hata).inSeconds < 60) return;
+    if (!_modelYukleniyor.add(ajan)) return;
     try {
       final r = await istemci.iste('modeller', {'ajan': ajan});
       modeller[ajan] = ((r['modeller'] as List?) ?? const [])
@@ -172,10 +199,66 @@ class Calisma extends ChangeNotifier {
       );
       notifyListeners();
     } catch (_) {
-      // bağlantı yoksa sonra yeniden denenir
+      // eski köprü ya da bağlantı yok: yerleşik liste kullanılır, bir dakika
+      // sonra yeniden denenir
+      _modelHatasi[ajan] = DateTime.now();
     } finally {
       _modelYukleniyor.remove(ajan);
     }
+  }
+
+  Future<KurulumSunucusu> _sunucu() async {
+    final s = _kurulumSunucusu ??= KurulumSunucusu();
+    await s.baslat();
+    return s;
+  }
+
+  /// Telefondaki köprüyü bu uygulamanın içindeki sürümle değiştirip yeniden
+  /// başlatır. Komut izni varsa arka planda, yoksa Termux'ta (kopyala-yapıştır).
+  /// Yeni köprüye bağlanınca true döner.
+  Future<bool> kopruyuGuncelle() async {
+    if (!Termux.destekleniyor || kopruGuncelleniyor) return false;
+    kopruGuncelleniyor = true;
+    notifyListeners();
+    try {
+      final komut = (await _sunucu()).guncellemeKomutu();
+      if (await Termux.komutIzniVar()) {
+        await Termux.calistir(
+          '${Termux.prefix}/bin/bash',
+          args: ['-lc', komut],
+        );
+      } else {
+        await Termux.terminaldeAc(komut);
+      }
+      // köprü kapanıp açılır; istemci kendiliğinden yeniden bağlanır
+      for (var i = 0; i < 90; i++) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        if (baglanti == BaglantiDurumu.bagli) {
+          await yenile();
+          if (!kopruEski) {
+            modeller.clear();
+            _modelHatasi.clear();
+            return true;
+          }
+        }
+      }
+      return false;
+    } finally {
+      kopruGuncelleniyor = false;
+      notifyListeners();
+    }
+  }
+
+  /// Kurulum komutunu (paketler, ajanlar, köprü) Termux'ta açar. [ajanlar]
+  /// verilirse yalnız onlar kurulur/güncellenir; sonradan ajan eklemek için.
+  Future<bool> kurulumuYenile({List<String>? ajanlar}) async {
+    final secilen = ajanlar ?? ayarlar.ajanlar;
+    ayarlar.ajanlar = {...ayarlar.ajanlar, ...secilen}.toList();
+    final komut = (await _sunucu()).komut(
+      token: ayarlar.token,
+      ajanlar: secilen,
+    );
+    return Termux.terminaldeAc(komut);
   }
 
   /// Seçili oturumdan çık: başlangıç ekranına dön.

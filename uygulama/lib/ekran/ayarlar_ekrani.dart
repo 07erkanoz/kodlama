@@ -20,6 +20,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
   Map<String, dynamic>? _ssh;
   Map<String, dynamic>? _araclar;
   final _sinanan = <String, String>{}; // sunucu → test sonucu
+  final _hatalar = <String, String>{}; // işlem → yüklenemediyse neden
   String? _calisan;
 
   Calisma get c => widget.calisma;
@@ -27,25 +28,61 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
   @override
   void initState() {
     super.initState();
+    c.addListener(_ciz);
     _yukle();
   }
 
+  void _ciz() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    c.removeListener(_ciz);
+    super.dispose();
+  }
+
+  /// Her bölüm ayrı yüklenir: biri yüklenemezse (ör. eski köprü bir işlemi
+  /// tanımıyor) ötekiler yine görünür ve neden yüklenemediği yazılır.
   Future<void> _yukle() async {
-    try {
-      final gh = await c.istemci.iste('gh_durum');
-      final ssh = await c.istemci.iste('ssh_durum');
-      final araclar = await c.istemci.iste('araclar');
-      if (mounted) {
-        setState(() {
-          _gh = gh;
-          _ssh = ssh;
-          _araclar = araclar;
-        });
+    Future<Map<String, dynamic>?> al(String op) async {
+      try {
+        final r = await c.istemci.iste(op);
+        _hatalar.remove(op);
+        return r;
+      } catch (e) {
+        final m = '$e';
+        _hatalar[op] = m.contains('bilinmeyen işlem')
+            ? 'Telefondaki köprü bu özelliği bilmiyor; aşağıdaki Köprü bölümünden güncelle.'
+            : m;
+        return null;
       }
-      await c.yenile();
-    } catch (e) {
-      _bildir('$e');
     }
+
+    final sonuc = await Future.wait([
+      al('gh_durum'),
+      al('ssh_durum'),
+      al('araclar'),
+    ]);
+    if (mounted) {
+      setState(() {
+        _gh = sonuc[0] ?? _gh;
+        _ssh = sonuc[1] ?? _ssh;
+        _araclar = sonuc[2] ?? _araclar;
+      });
+    }
+    await c.yenile();
+    if (mounted) setState(() {});
+  }
+
+  /// Yüklenirken ilerleme, yüklenemediyse nedeni.
+  Widget _bekle(String op) {
+    final hata = _hatalar[op];
+    if (hata == null) return const LinearProgressIndicator();
+    return Text(
+      hata,
+      style: TextStyle(color: Theme.of(context).colorScheme.error),
+    );
   }
 
   void _bildir(String m) {
@@ -102,13 +139,14 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  _ajanlarBolumu(t),
                   _termuxBolumu(t),
                   _Bolum(
                     simge: Icons.hub_outlined,
                     baslik: 'GitHub',
                     aciklama: 'Depoları klonlamak, push etmek ve PR açmak için GitHub CLI (gh).',
                     child: gh == null
-                        ? const LinearProgressIndicator()
+                        ? _bekle('gh_durum')
                         : gh['kurulu'] != true
                         ? _Satir(
                             metin: 'gh kurulu değil.',
@@ -168,7 +206,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                     baslik: 'SSH anahtarı',
                     aciklama: 'Sunuculara ve GitHub\'a şifresiz bağlanmak için. Gizli anahtar telefondan çıkmaz.',
                     child: ssh == null
-                        ? const LinearProgressIndicator()
+                        ? _bekle('ssh_durum')
                         : anahtar == null
                         ? _Satir(
                             metin: 'Henüz anahtar yok.',
@@ -316,23 +354,161 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                       ),
                     ),
                   ),
-                  _Bolum(
-                    simge: Icons.cable_outlined,
-                    baslik: 'Köprü',
-                    child: _Satir(
-                      metin: '127.0.0.1:${c.ayarlar.port} · ${c.kok ?? ''}',
-                      dugme: Termux.destekleniyor
-                          ? OutlinedButton(
-                              onPressed: Termux.kopruyuBaslat,
-                              child: const Text('Yeniden başlat'),
-                            )
-                          : null,
-                    ),
-                  ),
+                  _kopruBolumu(t),
                 ],
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ajanlarBolumu(ThemeData t) {
+    final r = t.colorScheme;
+    final termux = Termux.destekleniyor;
+    final ajanlar = c.ajanlar.isNotEmpty
+        ? c.ajanlar
+        : const [
+            {'ad': 'claude', 'kurulu': false},
+            {'ad': 'codex', 'kurulu': false},
+          ];
+    return _Bolum(
+      simge: Icons.smart_toy_outlined,
+      baslik: 'Ajanlar',
+      aciklama: 'Kurulu olmayan ajanı buradan kurabilir, kurulu olanı güncelleyebilir ya da hesabına giriş yapabilirsin.',
+      child: Column(
+        children: [
+          for (final a in ajanlar)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  AjanRozeti(ajan: a['ad'] as String, boyut: 30),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ajanAdi(a['ad'] as String),
+                          style: t.textTheme.titleSmall,
+                        ),
+                        Text(
+                          a['kurulu'] == true
+                              ? (a['surum'] as String? ?? 'kurulu')
+                              : 'kurulu değil',
+                          style: t.textTheme.bodySmall?.copyWith(
+                            color: a['kurulu'] == true
+                                ? r.onSurfaceVariant
+                                : r.error,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (termux) ...[
+                    if (a['kurulu'] == true)
+                      TextButton(
+                        onPressed: () => _terminalde(
+                          a['ad'] == 'codex' ? 'codex login' : 'claude',
+                          'Giriş',
+                        ),
+                        child: const Text('Giriş yap'),
+                      ),
+                    const SizedBox(width: 4),
+                    (a['kurulu'] == true
+                        ? OutlinedButton.new
+                        : FilledButton.new)(
+                      onPressed: () async {
+                        final acildi = await c.kurulumuYenile(
+                          ajanlar: [a['ad'] as String],
+                        );
+                        _bildir(
+                          acildi
+                              ? '${ajanAdi(a['ad'] as String)} kurulumu Termux\'ta başladı. Bitince buraya dön ve yenile.'
+                              : 'Kurulum komutu kopyalandı: Termux\'ta uzun bas → Paste → Enter.',
+                        );
+                      },
+                      child: Text(a['kurulu'] == true ? 'Güncelle' : 'Kur'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _kopruBolumu(ThemeData t) {
+    final r = t.colorScheme;
+    final surum = c.kopruSurumu;
+    final eski = c.kopruEski;
+    return _Bolum(
+      simge: Icons.cable_outlined,
+      baslik: 'Köprü',
+      aciklama: 'Termux\'ta çalışan ve ajanları süren küçük servis.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Sürüm ${surum ?? '?'}'
+            '${eski ? ' · güncel değil (en az ${Calisma.gerekenKopruSurumu} gerekiyor)' : ''}'
+            ' · 127.0.0.1:${c.ayarlar.port}',
+            style: t.textTheme.bodyMedium?.copyWith(
+              color: eski ? r.error : null,
+            ),
+          ),
+          if (c.kok != null)
+            Text(
+              c.kok!,
+              style: t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant),
+            ),
+          if (Termux.destekleniyor) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                (eski ? FilledButton.icon : OutlinedButton.icon)(
+                  onPressed: c.kopruGuncelleniyor
+                      ? null
+                      : () async {
+                          final tamam = await c.kopruyuGuncelle();
+                          _bildir(
+                            tamam ? 'Köprü güncellendi.' : 'Köprü güncellenemedi; "Kurulumu yeniden çalıştır"ı dene.',
+                          );
+                          await _yukle();
+                        },
+                  icon: c.kopruGuncelleniyor
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.system_update, size: 18),
+                  label: const Text('Köprüyü güncelle'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final acildi = await c.kurulumuYenile();
+                    _bildir(
+                      acildi
+                          ? 'Kurulum Termux\'ta başladı; bitince buraya dön.'
+                          : 'Kurulum komutu kopyalandı: Termux\'ta uzun bas → Paste → Enter.',
+                    );
+                  },
+                  icon: const Icon(Icons.restart_alt, size: 18),
+                  label: const Text('Kurulumu yeniden çalıştır'),
+                ),
+                TextButton(
+                  onPressed: Termux.kopruyuBaslat,
+                  child: const Text('Yeniden başlat'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -356,7 +532,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
         icon: const Icon(Icons.refresh, size: 18),
       ),
       child: d == null
-          ? const LinearProgressIndicator()
+          ? _bekle('araclar')
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
