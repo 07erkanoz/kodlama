@@ -126,8 +126,15 @@ Sertifika SHA-256: `0F:61:61:69:52:D5:1B:CA:A8:2E:B5:40:80:91:A9:33:32:91:98:5A:
 
 ## Bilinen sınırlar ve sıradakiler
 
-- Telefonda henüz denenmedi: Claude Code ve Codex'in Termux'ta (Android, bionic) npm ile çalışması
-  cihazda doğrulanmalı. Çalışmazsa kurulum scripti uyarır; glibc/proot yolu gerekebilir.
+- Termux'ta Node "android" platformu görünür, ajan paketleri ise linux programı taşır:
+  - **Codex** `npm install -g --os=linux --cpu=arm64 @openai/codex` ile kurulur; programı statik
+    (musl), Android'de doğrudan çalışır.
+  - **Claude Code** resmi `@anthropic-ai/claude-code-linux-arm64` paketinden indirilir, yükleyicisi
+    Termux'un `glibc-repo` deposundaki glibc'ye `patchelf` ile yönlendirilir
+    (`~/.atolye/claude/claude`, başlatıcı `$PREFIX/bin/claude`). Termux'un bionic `LD_PRELOAD`'ı
+    glibc sürecine yüklenemediği için başlatıcı onu kaldırır, Claude'un açtığı kabuklara `BASH_ENV`
+    ile geri verir. Kendi kendini güncelleme kapalıdır; güncellemek için kurulum komutu yeniden
+    çalıştırılır. Bu yol bilgisayarda taklit edilerek denendi, telefonda doğrulanmalı.
 - Android 12+ arka plan süreç sınırı (phantom process killer): köprü `termux-wake-lock` alır, yine de
   pil optimizasyonunun kapatılması önerilir.
 - Folio'nun DOCX/XLSX önizleyicileri henüz alınmadı; şimdilik resim, PDF, Markdown ve metin önizlenir.

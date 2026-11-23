@@ -7,7 +7,8 @@
 #
 # Yaptıkları (her biri ekranda yazılır):
 #   1. Termux paketleri: python, nodejs, git
-#   2. Seçilen ajan CLI'ları resmi npm paketlerinden (Claude Code, Codex)
+#   2. Seçilen ajanlar resmi npm paketlerinden: Codex linux-arm64 paketiyle,
+#      Claude Code resmi linux paketi + Termux glibc deposuyla
 #   3. Atölye köprüsü (~/.atolye/kopru) ve "atolye-kopru" komutu
 #   4. Uygulamanın Termux'a komut gönderebilmesi için allow-external-apps
 # Hiçbir hesap bilgisi istenmez; giriş her CLI'ın kendi akışıyla yapılır.
@@ -53,23 +54,99 @@ adim "Gerekli paketler kuruluyor"
 pip install --upgrade --quiet websockets
 tamam "python $(python --version 2>&1 | cut -d' ' -f2), node $(node --version)"
 
+# Termux'ta Node "android" platformu görünür; npm'in ajan paketleri ise yalnız
+# linux için derlenmiş program taşır. Bu yüzden:
+#   Codex  : linux-arm64 paketi seçilerek kurulur (program statik, doğrudan çalışır)
+#   Claude : resmi linux paketi indirilir, Termux'un glibc deposuyla çalıştırılır
+case "$(uname -m)" in
+  aarch64) NPM_CPU=arm64; GLIBC_LD=ld-linux-aarch64.so.1 ;;
+  x86_64) NPM_CPU=x64; GLIBC_LD=ld-linux-x86-64.so.2 ;;
+  *) NPM_CPU=""; GLIBC_LD="" ;;
+esac
+
+claude_kur() {
+  if [ -z "$NPM_CPU" ]; then
+    uyar "Claude Code bu işlemcide desteklenmiyor: $(uname -m)"
+    return 1
+  fi
+  # Önceki denemeden kalan, Termux'ta çalışmayan npm kurulumunu kaldır.
+  npm uninstall -g @anthropic-ai/claude-code >/dev/null 2>&1 || true
+
+  echo "Termux glibc deposu ve araçları kuruluyor…"
+  "${APT[@]}" install glibc-repo || return 1
+  pkg update -y || return 1
+  "${APT[@]}" install glibc-runner patchelf || return 1
+  local glibc="$PREFIX/glibc" ld="$PREFIX/glibc/lib/$GLIBC_LD"
+  if [ ! -f "$ld" ]; then
+    uyar "glibc yükleyicisi bulunamadı: $ld"
+    return 1
+  fi
+
+  local surum paket gecici hedef="$HOME/.atolye/claude"
+  surum="$(npm view @anthropic-ai/claude-code version)" || return 1
+  paket="@anthropic-ai/claude-code-linux-$NPM_CPU@$surum"
+  echo "İndiriliyor: $paket (yaklaşık 100 MB, açılınca 350 MB)…"
+  gecici="$(mktemp -d)"
+  if ! (cd "$gecici" && npm pack "$paket" --silent >/dev/null && tar xzf ./*.tgz); then
+    rm -rf "$gecici"
+    return 1
+  fi
+  mkdir -p "$hedef"
+  mv -f "$gecici/package/claude" "$hedef/claude.yeni"
+  rm -rf "$gecici"
+  # Programın yükleyicisini Termux'un glibc'sine yönlendir.
+  patchelf --set-interpreter "$ld" --set-rpath "$glibc/lib" "$hedef/claude.yeni" || return 1
+  chmod 755 "$hedef/claude.yeni"
+  mv -f "$hedef/claude.yeni" "$hedef/claude"
+
+  # glibc'nin ad çözümü için (Android'de /etc/resolv.conf yok).
+  mkdir -p "$glibc/etc"
+  [ -s "$glibc/etc/resolv.conf" ] || printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > "$glibc/etc/resolv.conf"
+
+  # Termux'un LD_PRELOAD'ı (bionic) glibc sürecine yüklenemez: Claude için
+  # kaldırılır, Claude'un açtığı kabuklara BASH_ENV ile geri verilir.
+  cat > "$HOME/.atolye/termux-ortam.sh" <<'SH'
+[ -n "$ATOLYE_LD_PRELOAD" ] && export LD_PRELOAD="$ATOLYE_LD_PRELOAD"
+SH
+  cat > "$PREFIX/bin/claude" <<SH
+#!$PREFIX/bin/sh
+# Atölye: Claude Code'un resmi linux paketi, Termux glibc ile.
+export ATOLYE_LD_PRELOAD="\${LD_PRELOAD:-}"
+export BASH_ENV="\$HOME/.atolye/termux-ortam.sh"
+export DISABLE_AUTOUPDATER=1
+unset LD_PRELOAD
+exec "\$HOME/.atolye/claude/claude" "\$@"
+SH
+  chmod 755 "$PREFIX/bin/claude"
+  hash -r
+  claude --version
+}
+
+codex_kur() {
+  if [ -z "$NPM_CPU" ]; then
+    uyar "Codex bu işlemcide desteklenmiyor: $(uname -m)"
+    return 1
+  fi
+  npm install -g --os=linux --cpu="$NPM_CPU" @openai/codex && hash -r && codex --version
+}
+
 IFS=',' read -ra SECILEN <<< "$AJANLAR"
 for ajan in "${SECILEN[@]}"; do
   case "$ajan" in
     claude)
-      adim "Claude Code kuruluyor (npm: @anthropic-ai/claude-code)"
-      if npm install -g @anthropic-ai/claude-code && claude --version; then
+      adim "Claude Code kuruluyor (resmi linux paketi + Termux glibc)"
+      if claude_kur; then
         tamam "Claude Code kuruldu"
       else
-        uyar "Claude Code bu cihazda çalıştırılamadı; uygulama ayrıntıyı gösterecek"
+        uyar "Claude Code kurulamadı; yukarıdaki hataya bak. Komutu yeniden çalıştırmak güvenlidir."
       fi
       ;;
     codex)
-      adim "Codex kuruluyor (npm: @openai/codex)"
-      if npm install -g @openai/codex && codex --version; then
+      adim "Codex kuruluyor (npm: @openai/codex, linux-$NPM_CPU)"
+      if codex_kur; then
         tamam "Codex kuruldu"
       else
-        uyar "Codex bu cihazda çalıştırılamadı; uygulama ayrıntıyı gösterecek"
+        uyar "Codex kurulamadı; yukarıdaki hataya bak. Komutu yeniden çalıştırmak güvenlidir."
       fi
       ;;
     *) uyar "bilinmeyen ajan: $ajan" ;;
