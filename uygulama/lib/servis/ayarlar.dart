@@ -29,6 +29,10 @@ class Ayarlar {
   int get port => _p.getInt('port') ?? 8765;
   set port(int v) => _p.setInt('port', v);
 
+  /// 'sistem', 'acik' ya da 'koyu'.
+  String get tema => _p.getString('tema') ?? 'sistem';
+  set tema(String v) => _p.setString('tema', v);
+
   bool get kurulumBitti => _p.getBool('kurulumBitti') ?? false;
   set kurulumBitti(bool v) => _p.setBool('kurulumBitti', v);
 

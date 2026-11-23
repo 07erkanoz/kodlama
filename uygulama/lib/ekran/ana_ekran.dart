@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../arayuz/ortak.dart';
 import '../arayuz/yerlesim.dart';
 import '../model/calisma.dart';
-import '../model/sohbet.dart';
-import '../servis/kopru_istemci.dart';
+import 'baslangic_ekrani.dart';
 import 'dosya_paneli.dart';
 import 'onizleme.dart';
 import 'oturum_listesi.dart';
@@ -13,14 +13,12 @@ import 'sohbet_gorunumu.dart';
 /// göre değişir; durum ([Calisma]) değişmediği için katlayıp açınca sohbet
 /// kaldığı yerden sürer.
 ///
-///   dar (telefon)       : sohbet tam ekran; oturumlar soldan, dosyalar
-///                         sağdan çekmece; önizleme tam sayfa
+///   dar (telefon)       : tek panel; oturumlar soldan, dosyalar sağdan
+///                         çekmece; önizleme tam sayfa
 ///   orta (açık katlanır,
-///         küçük tablet) : oturumlar | sohbet; dosyalar ve önizleme sağ
-///                         çekmecede / tam sayfada
-///   menteşeli katlanır  : sohbet | dosyalar ya da önizleme (menteşeye göre
-///                         bölünür), oturumlar soldan çekmece
-///   geniş (tablet)      : oturumlar | sohbet | dosyalar ya da önizleme
+///         küçük tablet) : kenar çubuğu | sohbet; dosyalar sağ çekmecede
+///   menteşeli katlanır  : sohbet | dosyalar ya da önizleme (menteşeye göre)
+///   geniş (tablet)      : kenar çubuğu | sohbet | dosyalar ya da önizleme
 class AnaEkran extends StatelessWidget {
   const AnaEkran({super.key, required this.calisma});
 
@@ -30,57 +28,82 @@ class AnaEkran extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: calisma,
-      builder: (context, _) {
-        return LayoutBuilder(
-          builder: (context, kisit) {
-            final sinif = ekranSinifi(kisit.maxWidth);
-            final mentese = dikeyMentese(context);
-            if (mentese != null) return _Katlanir(calisma: calisma);
-            return switch (sinif) {
-              EkranSinifi.dar => _Dar(calisma: calisma),
-              EkranSinifi.orta => _Orta(calisma: calisma),
-              EkranSinifi.genis => _Genis(calisma: calisma),
-            };
-          },
-        );
-      },
+      builder: (context, _) => LayoutBuilder(
+        builder: (context, kisit) {
+          if (dikeyMentese(context) != null) return _Katlanir(calisma: calisma);
+          return switch (ekranSinifi(kisit.maxWidth)) {
+            EkranSinifi.dar => _Dar(calisma: calisma),
+            EkranSinifi.orta => _Orta(calisma: calisma),
+            EkranSinifi.genis => _Genis(calisma: calisma),
+          };
+        },
+      ),
     );
   }
 }
 
+/// Sohbetin üst çubuğu: başlık, ajan ve proje; dosyalar ve menü.
 PreferredSizeWidget _ustCubuk(
   BuildContext context,
   Calisma c, {
   bool menu = false,
-  bool dosyalar = false,
+  _DosyaDugmesi dosyalar = _DosyaDugmesi.yok,
 }) {
   final s = c.secili;
+  final t = Theme.of(context);
+  final r = t.colorScheme;
   return AppBar(
     automaticallyImplyLeading: false,
+    toolbarHeight: 56,
+    titleSpacing: menu ? 0 : 20,
     leading: menu
         ? Builder(
             builder: (context) => IconButton(
               tooltip: 'Oturumlar',
               onPressed: () => Scaffold.of(context).openDrawer(),
-              icon: const Icon(Icons.menu),
+              icon: const Icon(Icons.menu_rounded),
             ),
           )
         : null,
     title: s == null
-        ? const Text('Atölye')
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        ? Text(
+            'Yeni oturum',
+            style: t.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : Row(
             children: [
-              Text(s.baslik, maxLines: 1, overflow: TextOverflow.ellipsis),
-              Text(
-                '${s.ajan == 'claude' ? 'Claude Code' : 'Codex'} · ${s.cwd.split('/').last}',
-                style: Theme.of(context).textTheme.bodySmall,
+              AjanRozeti(ajan: s.ajan, boyut: 26, calisiyor: s.calisiyor),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      s.baslik,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '${ajanAdi(s.ajan)} · ${s.cwd.split('/').last}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.textTheme.bodySmall?.copyWith(
+                        color: r.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
     actions: [
-      if (s != null) _ModSecici(sohbet: s),
-      if (s != null && dosyalar)
+      if (s != null && dosyalar == _DosyaDugmesi.cekmece)
         Builder(
           builder: (context) => IconButton(
             tooltip: 'Dosyalar',
@@ -88,13 +111,60 @@ PreferredSizeWidget _ustCubuk(
             icon: const Icon(Icons.folder_open_outlined),
           ),
         ),
+      if (s != null && dosyalar == _DosyaDugmesi.panel)
+        IconButton(
+          tooltip: c.dosyaPaneli
+              ? 'Dosya panelini gizle'
+              : 'Dosya panelini göster',
+          isSelected: c.dosyaPaneli,
+          onPressed: c.dosyaPaneliDegistir,
+          icon: const Icon(Icons.view_sidebar_outlined),
+          selectedIcon: Icon(Icons.view_sidebar, color: r.primary),
+        ),
+      if (s != null)
+        PopupMenuButton<String>(
+          tooltip: 'Diğer',
+          icon: const Icon(Icons.more_horiz),
+          onSelected: (v) async {
+            if (v == 'yeni') c.baslangica();
+            if (v == 'sil') {
+              final evet = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Oturum silinsin mi?'),
+                  content: const Text(
+                    'Atölye kaydından silinir; klasördeki dosyalara dokunulmaz.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Vazgeç'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Sil'),
+                    ),
+                  ],
+                ),
+              );
+              if (evet == true) await c.oturumSil(s.id);
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'yeni', child: Text('Yeni oturum')),
+            PopupMenuItem(value: 'sil', child: Text('Oturumu sil')),
+          ],
+        ),
+      const SizedBox(width: 6),
     ],
   );
 }
 
-Widget _sohbetAlani(Calisma c, {void Function(String)? dosyaAc}) {
+enum _DosyaDugmesi { yok, cekmece, panel }
+
+Widget _govde(Calisma c, {void Function(String)? dosyaAc}) {
   final s = c.secili;
-  if (s == null) return _Karsilama(calisma: c);
+  if (s == null) return BaslangicEkrani(calisma: c);
   return SohbetGorunumu(
     key: ValueKey(s.id),
     calisma: c,
@@ -105,51 +175,12 @@ Widget _sohbetAlani(Calisma c, {void Function(String)? dosyaAc}) {
 
 /// Sağ panel: önizleme açıksa o, değilse dosyalar.
 Widget _sagPanel(Calisma c) {
-  final s = c.secili;
-  if (s == null) return const SizedBox.shrink();
+  final s = c.secili!;
   final yol = c.onizlenen;
   if (yol != null) {
     return OnizlemePaneli(calisma: c, yol: yol, kapat: () => c.onizle(null));
   }
   return DosyaPaneli(calisma: c, sohbet: s, ac: c.onizle);
-}
-
-class _Dar extends StatelessWidget {
-  const _Dar({required this.calisma});
-  final Calisma calisma;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = calisma;
-    final s = c.secili;
-    return Scaffold(
-      appBar: _ustCubuk(context, c, menu: true, dosyalar: true),
-      drawer: Drawer(
-        child: Builder(
-          builder: (context) => OturumListesi(
-            calisma: c,
-            secildi: () => Navigator.of(context).maybePop(),
-          ),
-        ),
-      ),
-      endDrawer: s == null
-          ? null
-          : Drawer(
-              width: MediaQuery.sizeOf(context).width * .86,
-              child: Builder(
-                builder: (context) => DosyaPaneli(
-                  calisma: c,
-                  sohbet: s,
-                  ac: (yol) {
-                    Navigator.of(context).pop();
-                    _tamSayfa(context, c, yol);
-                  },
-                ),
-              ),
-            ),
-      body: _sohbetAlani(c),
-    );
-  }
 }
 
 void _tamSayfa(BuildContext context, Calisma c, String yol) {
@@ -160,6 +191,57 @@ void _tamSayfa(BuildContext context, Calisma c, String yol) {
   );
 }
 
+Widget? _dosyaCekmecesi(BuildContext context, Calisma c, double genislik) {
+  final s = c.secili;
+  if (s == null) return null;
+  return Drawer(
+    width: genislik,
+    child: Builder(
+      builder: (context) => DosyaPaneli(
+        calisma: c,
+        sohbet: s,
+        ac: (yol) {
+          Navigator.of(context).pop();
+          _tamSayfa(context, c, yol);
+        },
+      ),
+    ),
+  );
+}
+
+class _Dar extends StatelessWidget {
+  const _Dar({required this.calisma});
+  final Calisma calisma;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = calisma;
+    return Scaffold(
+      appBar: _ustCubuk(
+        context,
+        c,
+        menu: true,
+        dosyalar: _DosyaDugmesi.cekmece,
+      ),
+      drawer: Drawer(
+        width: MediaQuery.sizeOf(context).width * .84,
+        child: Builder(
+          builder: (context) => OturumListesi(
+            calisma: c,
+            secildi: () => Navigator.of(context).maybePop(),
+          ),
+        ),
+      ),
+      endDrawer: _dosyaCekmecesi(
+        context,
+        c,
+        MediaQuery.sizeOf(context).width * .88,
+      ),
+      body: _govde(c),
+    );
+  }
+}
+
 class _Orta extends StatelessWidget {
   const _Orta({required this.calisma});
   final Calisma calisma;
@@ -167,29 +249,14 @@ class _Orta extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = calisma;
-    final s = c.secili;
     return Scaffold(
-      endDrawer: s == null
-          ? null
-          : Drawer(
-              width: 360,
-              child: Builder(
-                builder: (context) => DosyaPaneli(
-                  calisma: c,
-                  sohbet: s,
-                  ac: (yol) {
-                    Navigator.of(context).pop();
-                    _tamSayfa(context, c, yol);
-                  },
-                ),
-              ),
-            ),
+      endDrawer: _dosyaCekmecesi(context, c, 380),
       body: IkiPanel(
-        solGenislik: 280,
+        solGenislik: 268,
         sol: OturumListesi(calisma: c),
         sag: Scaffold(
-          appBar: _ustCubuk(context, c, dosyalar: true),
-          body: _sohbetAlani(c),
+          appBar: _ustCubuk(context, c, dosyalar: _DosyaDugmesi.cekmece),
+          body: _govde(c),
         ),
       ),
     );
@@ -215,7 +282,7 @@ class _Katlanir extends StatelessWidget {
       body: IkiPanel(
         sol: Scaffold(
           appBar: _ustCubuk(context, c, menu: true),
-          body: _sohbetAlani(c, dosyaAc: c.onizle),
+          body: _govde(c, dosyaAc: c.onizle),
         ),
         sag: c.secili == null ? OturumListesi(calisma: c) : _sagPanel(c),
       ),
@@ -234,117 +301,26 @@ class _Genis extends StatelessWidget {
       width: 1,
       color: Theme.of(context).colorScheme.outlineVariant,
     );
+    final sagAcik = c.secili != null && (c.dosyaPaneli || c.onizlenen != null);
     final sagGenislik = c.onizlenen != null
-        ? (MediaQuery.sizeOf(context).width * .38).clamp(360.0, 640.0)
-        : 340.0;
+        ? (MediaQuery.sizeOf(context).width * .38).clamp(380.0, 680.0)
+        : 320.0;
     return Scaffold(
       body: Row(
         children: [
-          SizedBox(width: 300, child: OturumListesi(calisma: c)),
+          SizedBox(width: 280, child: OturumListesi(calisma: c)),
           ayrac,
           Expanded(
             child: Scaffold(
-              appBar: _ustCubuk(context, c),
-              body: _sohbetAlani(c, dosyaAc: c.onizle),
+              appBar: _ustCubuk(context, c, dosyalar: _DosyaDugmesi.panel),
+              body: _govde(c, dosyaAc: c.onizle),
             ),
           ),
-          if (c.secili != null) ...[
+          if (sagAcik) ...[
             ayrac,
             SizedBox(width: sagGenislik, child: _sagPanel(c)),
           ],
         ],
-      ),
-    );
-  }
-}
-
-class _ModSecici extends StatelessWidget {
-  const _ModSecici({required this.sohbet});
-  final Sohbet sohbet;
-
-  static const _modlar = {
-    'sor': ('Sor', Icons.back_hand_outlined),
-    'duzenle': ('Düzenle', Icons.edit_note),
-    'plan': ('Plan', Icons.map_outlined),
-    'serbest': ('Serbest', Icons.bolt),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: sohbet,
-      builder: (context, _) {
-        final (ad, simge) = _modlar[sohbet.mod] ?? _modlar['sor']!;
-        return PopupMenuButton<String>(
-          tooltip: 'Çalışma biçimi',
-          enabled: !sohbet.calisiyor,
-          onSelected: sohbet.modDegistir,
-          itemBuilder: (_) => [
-            for (final MapEntry(key: k, value: (a, i)) in _modlar.entries)
-              CheckedPopupMenuItem(
-                value: k,
-                checked: k == sohbet.mod,
-                child: Row(
-                  children: [
-                    Icon(i, size: 18),
-                    const SizedBox(width: 8),
-                    Text(a),
-                  ],
-                ),
-              ),
-          ],
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Chip(
-              avatar: Icon(simge, size: 16),
-              label: Text(ad),
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _Karsilama extends StatelessWidget {
-  const _Karsilama({required this.calisma});
-  final Calisma calisma;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final bagli = calisma.baglanti == BaglantiDurumu.bagli;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.handyman_outlined,
-              size: 48,
-              color: t.colorScheme.outline,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              bagli
-                  ? 'Bir oturum seç ya da yenisini aç.'
-                  : 'Köprüye bağlanılıyor…',
-              style: t.textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-            if (!bagli) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Termux\'ta "atolye-kopru" çalışıyor olmalı.',
-                style: t.textTheme.bodyMedium?.copyWith(
-                  color: t.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }

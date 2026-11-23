@@ -5,13 +5,93 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../arayuz/markdown.dart';
+import '../arayuz/mesaj_kutusu.dart';
+import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../model/sohbet.dart';
 import 'onizleme.dart';
 
-/// Sohbet: ajanın yazdıkları zengin metin olarak, araç çağrıları kart
-/// olarak, onaylar düğmeli kart olarak, üretilen dosyalar önizlenebilir
-/// çip olarak. Terminal görünmez.
+/// Sohbetin ekrandaki birimi: tek tek öğeler değil, okunur gruplar.
+sealed class _Blok {}
+
+class _KullaniciBlok extends _Blok {
+  _KullaniciBlok(this.oge);
+  final KullaniciOge oge;
+}
+
+class _AjanBasligi extends _Blok {}
+
+class _MetinBlok extends _Blok {
+  _MetinBlok(this.oge);
+  final MetinOge oge;
+}
+
+class _EtkinlikBlok extends _Blok {
+  _EtkinlikBlok(this.araclar);
+  final List<AracOge> araclar;
+}
+
+class _OnayBlok extends _Blok {
+  _OnayBlok(this.oge);
+  final OnayOge oge;
+}
+
+class _DosyaBlok extends _Blok {
+  _DosyaBlok(this.dosyalar);
+  final List<DosyaOge> dosyalar;
+}
+
+class _BittiBlok extends _Blok {
+  _BittiBlok(this.oge);
+  final BittiOge oge;
+}
+
+class _UyariBlok extends _Blok {
+  _UyariBlok(this.metin);
+  final String metin;
+}
+
+List<_Blok> _bloklar(List<Oge> ogeler) {
+  final out = <_Blok>[];
+  var turBasi = true;
+  for (final o in ogeler) {
+    if (o is! KullaniciOge && turBasi) {
+      out.add(_AjanBasligi());
+      turBasi = false;
+    }
+    switch (o) {
+      case KullaniciOge():
+        out.add(_KullaniciBlok(o));
+        turBasi = true;
+      case MetinOge():
+        out.add(_MetinBlok(o));
+      case AracOge():
+        if (out.lastOrNull case _EtkinlikBlok(:final araclar)) {
+          araclar.add(o);
+        } else {
+          out.add(_EtkinlikBlok([o]));
+        }
+      case OnayOge():
+        out.add(_OnayBlok(o));
+      case DosyaOge():
+        if (out.lastOrNull case _DosyaBlok(:final dosyalar)) {
+          dosyalar.removeWhere((d) => d.yol == o.yol);
+          dosyalar.add(o);
+        } else {
+          out.add(_DosyaBlok([o]));
+        }
+      case BittiOge():
+        out.add(_BittiBlok(o));
+      case UyariOge():
+        out.add(_UyariBlok(o.metin));
+    }
+  }
+  return out;
+}
+
+/// Sohbet: ajanın yazdıkları zengin metin; araç adımları tek bir etkinlik
+/// satırında; düzenlemeler ve onaylar diff olarak; üretilen dosyalar
+/// önizlenebilir çipler olarak.
 class SohbetGorunumu extends StatefulWidget {
   const SohbetGorunumu({
     super.key,
@@ -22,8 +102,6 @@ class SohbetGorunumu extends StatefulWidget {
 
   final Calisma calisma;
   final Sohbet sohbet;
-
-  /// Dosyaya basıldı: geniş ekranda yan panelde, dar ekranda tam sayfa.
   final void Function(String yol)? dosyaAc;
 
   @override
@@ -32,7 +110,6 @@ class SohbetGorunumu extends StatefulWidget {
 
 class _SohbetGorunumuState extends State<SohbetGorunumu> {
   final _yazi = TextEditingController();
-  final _kaydirma = ScrollController();
   final _ekler = <String>[];
   bool _ekYukleniyor = false;
 
@@ -73,8 +150,10 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     setState(() => _ekYukleniyor = true);
     try {
       for (final f in secilen) {
-        final veri = await f.readAsBytes();
-        final yol = await s.ekYukle(f.name, base64Encode(veri));
+        final yol = await s.ekYukle(
+          f.name,
+          base64Encode(await f.readAsBytes()),
+        );
         setState(() => _ekler.add(yol));
       }
     } catch (e) {
@@ -92,43 +171,68 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     return ListenableBuilder(
       listenable: s,
       builder: (context, _) {
-        final ogeler = s.ogeler;
+        final bloklar = _bloklar(s.ogeler);
+        final say = bloklar.length + (s.calisiyor ? 1 : 0);
         return Column(
           children: [
             Expanded(
               child: s.yukleniyor
                   ? const Center(child: CircularProgressIndicator())
-                  : ogeler.isEmpty
+                  : bloklar.isEmpty
                   ? _Bos(sohbet: s)
                   : ListView.builder(
-                      controller: _kaydirma,
                       reverse: true,
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                      itemCount: ogeler.length + (s.calisiyor ? 1 : 0),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                      itemCount: say,
                       itemBuilder: (context, i) {
-                        if (s.calisiyor && i == 0) return const _Calisiyor();
-                        final o =
-                            ogeler[ogeler.length -
+                        if (s.calisiyor && i == 0) {
+                          return _sar(_Calisiyor(sohbet: s));
+                        }
+                        final b =
+                            bloklar[bloklar.length -
                                 1 -
                                 (i - (s.calisiyor ? 1 : 0))];
-                        return Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 820),
-                            child: _oge(o),
-                          ),
-                        );
+                        return _sar(_blok(b));
                       },
                     ),
             ),
-            _Yazici(
-              denetleyici: _yazi,
-              ekler: _ekler,
-              ekYukleniyor: _ekYukleniyor,
-              calisiyor: s.calisiyor,
-              gonder: _gonder,
-              durdur: s.durdur,
-              ekSec: _ekSec,
-              ekKaldir: (e) => setState(() => _ekler.remove(e)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: SafeArea(
+                top: false,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 780),
+                    child: MesajKutusu(
+                      denetleyici: _yazi,
+                      gonder: _gonder,
+                      durdur: s.durdur,
+                      calisiyor: s.calisiyor,
+                      ekle: _ekSec,
+                      ekler: _ekler,
+                      ekYukleniyor: _ekYukleniyor,
+                      ekKaldir: (e) => setState(() => _ekler.remove(e)),
+                      ipucu: s.calisiyor
+                          ? 'Araya yaz — çalışan işe eklenir'
+                          : 'Devam et…',
+                      cipler: [
+                        SecimCipi<String>(
+                          simge: Icon(bicim(s.mod).$4),
+                          etiket: bicim(s.mod).$2,
+                          ipucu: 'Çalışma biçimi',
+                          etkin: !s.calisiyor,
+                          secili: s.mod,
+                          secenekler: [
+                            for (final b in calismaBicimleri)
+                              (b.$1, b.$2, b.$3, true),
+                          ],
+                          secildi: s.modDegistir,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         );
@@ -136,19 +240,33 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     );
   }
 
-  Widget _oge(Oge o) => switch (o) {
-    KullaniciOge() => _KullaniciBalonu(oge: o, dosyaAc: _dosyaAc),
-    MetinOge() => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Markdown(o.metin, size: 15, onLink: _dosyaAc),
+  Widget _sar(Widget w) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 780),
+      child: SizedBox(width: double.infinity, child: w),
     ),
-    AracOge() => _AracKarti(oge: o),
-    OnayOge() => _OnayKarti(oge: o, karar: (k) => s.onayla(o, k)),
-    DosyaOge() => _DosyaCipi(oge: o, ac: () => _dosyaAc(o.yol)),
-    BittiOge() => _BittiSatiri(oge: o),
-    UyariOge() => _UyariSatiri(metin: o.metin),
+  );
+
+  Widget _blok(_Blok b) => switch (b) {
+    _KullaniciBlok(:final oge) => _KullaniciBalonu(oge: oge, dosyaAc: _dosyaAc),
+    _AjanBasligi() => _AjanSatiri(ajan: s.ajan),
+    _MetinBlok(:final oge) => Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Markdown(oge.metin, size: 15, onLink: _dosyaAc),
+    ),
+    _EtkinlikBlok(:final araclar) => _Etkinlik(araclar: araclar),
+    _OnayBlok(:final oge) => _OnayKarti(
+      oge: oge,
+      ajan: s.ajan,
+      karar: (k) => s.onayla(oge, k),
+    ),
+    _DosyaBlok(:final dosyalar) => _Dosyalar(dosyalar: dosyalar, ac: _dosyaAc),
+    _BittiBlok(:final oge) => _BittiSatiri(oge: oge),
+    _UyariBlok(:final metin) => _UyariSatiri(metin: metin),
   };
 }
+
+// ---------------------------------------------------------------- parçalar
 
 class _Bos extends StatelessWidget {
   const _Bos({required this.sohbet});
@@ -163,17 +281,17 @@ class _Bos extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.forum_outlined, size: 40, color: t.colorScheme.outline),
-            const SizedBox(height: 12),
+            AjanRozeti(ajan: sohbet.ajan, boyut: 44),
+            const SizedBox(height: 14),
             Text(
-              '${sohbet.ajan == 'claude' ? 'Claude Code' : 'Codex'} · ${sohbet.cwd.split('/').last}',
-              style: t.textTheme.titleMedium,
+              '${ajanAdi(sohbet.ajan)} · ${sohbet.cwd.split('/').last}',
+              style: t.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
-              'Ne yapmak istediğini yaz. Değişiklikler ve komutlar için '
-              'onayın istenir.',
-              textAlign: TextAlign.center,
+              'Ne yapmak istediğini yaz.',
               style: t.textTheme.bodyMedium?.copyWith(
                 color: t.colorScheme.onSurfaceVariant,
               ),
@@ -185,22 +303,61 @@ class _Bos extends StatelessWidget {
   }
 }
 
-class _Calisiyor extends StatelessWidget {
-  const _Calisiyor();
+class _AjanSatiri extends StatelessWidget {
+  const _AjanSatiri({required this.ajan});
+  final String ajan;
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 10),
+    final t = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 8),
+      child: Row(
+        children: [
+          AjanRozeti(ajan: ajan, boyut: 22),
+          const SizedBox(width: 8),
+          Text(
+            ajanAdi(ajan),
+            style: t.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Calisiyor extends StatelessWidget {
+  const _Calisiyor({required this.sohbet});
+  final Sohbet sohbet;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final bekleyen = sohbet.ogeler.whereType<OnayOge>().any((o) => !o.kapandi);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
           SizedBox(
             width: 14,
             height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: bekleyen
+                ? Icon(
+                    Icons.pause_circle_outline,
+                    size: 14,
+                    color: t.colorScheme.primary,
+                  )
+                : const CircularProgressIndicator(strokeWidth: 2),
           ),
-          SizedBox(width: 10),
-          Text('Çalışıyor…'),
+          const SizedBox(width: 10),
+          Text(
+            bekleyen ? 'Onayın bekleniyor' : 'Çalışıyor…',
+            style: t.textTheme.bodySmall?.copyWith(
+              color: t.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -215,32 +372,49 @@ class _KullaniciBalonu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final r = t.colorScheme;
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
-        margin: const EdgeInsets.only(top: 14, bottom: 6, left: 48),
+        margin: const EdgeInsets.only(top: 18, bottom: 4, left: 56),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: t.colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(16),
+          color: r.surfaceContainerHigh,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(18),
+            topRight: Radius.circular(18),
+            bottomLeft: Radius.circular(18),
+            bottomRight: Radius.circular(6),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             if (oge.metin.isNotEmpty)
-              Text(
+              SelectableText(
                 oge.metin,
-                style: TextStyle(
+                style: t.textTheme.bodyLarge?.copyWith(
                   fontSize: 15,
-                  color: t.colorScheme.onPrimaryContainer,
+                  height: 1.45,
                 ),
               ),
-            for (final e in oge.ekler)
-              ActionChip(
-                avatar: const Icon(Icons.attach_file, size: 16),
-                label: Text(e.split('/').last),
-                onPressed: () => dosyaAc(e),
+            if (oge.ekler.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final e in oge.ekler)
+                    ActionChip(
+                      avatar: Icon(dosyaSimgesi(e), size: 14),
+                      label: Text(
+                        e.split('/').last.replaceFirst(RegExp(r'^\d+_'), ''),
+                      ),
+                      onPressed: () => dosyaAc(e),
+                    ),
+                ],
               ),
+            ],
           ],
         ),
       ),
@@ -248,94 +422,108 @@ class _KullaniciBalonu extends StatelessWidget {
   }
 }
 
-class _AracKarti extends StatefulWidget {
-  const _AracKarti({required this.oge});
-  final AracOge oge;
+/// Aracın insanca adı ve simgesi.
+(String, IconData) aracGorunumu(String ad) => switch (ad) {
+  'Bash' || 'Komut' => ('Komut', Icons.terminal_rounded),
+  'Read' => ('Okudu', Icons.visibility_outlined),
+  'Write' => ('Yazdı', Icons.note_add_outlined),
+  'Edit' || 'MultiEdit' || 'Düzenle' => ('Düzenledi', Icons.edit_outlined),
+  'NotebookEdit' => ('Defter', Icons.edit_note),
+  'Glob' => ('Dosya aradı', Icons.manage_search),
+  'Grep' => ('İçerik aradı', Icons.search),
+  'WebSearch' || 'webSearch' => ('Web\'de aradı', Icons.travel_explore),
+  'WebFetch' => ('Sayfa okudu', Icons.public),
+  'Task' || 'Agent' => ('Alt görev', Icons.account_tree_outlined),
+  'TodoWrite' => ('Plan', Icons.checklist),
+  'Dosya değişikliği' => ('Değişiklik', Icons.edit_outlined),
+  _ => (ad, Icons.extension_outlined),
+};
+
+class _Etkinlik extends StatefulWidget {
+  const _Etkinlik({required this.araclar});
+  final List<AracOge> araclar;
 
   @override
-  State<_AracKarti> createState() => _AracKartiState();
+  State<_Etkinlik> createState() => _EtkinlikState();
 }
 
-class _AracKartiState extends State<_AracKarti> {
+class _EtkinlikState extends State<_Etkinlik> {
   bool _acik = false;
-
-  static IconData _simge(String ad) => switch (ad) {
-    'Bash' || 'Komut' => Icons.terminal,
-    'Read' => Icons.visibility_outlined,
-    'Write' || 'Edit' || 'MultiEdit' || 'Düzenle' => Icons.edit_outlined,
-    'Glob' || 'Grep' => Icons.search,
-    'WebSearch' || 'webSearch' || 'WebFetch' => Icons.public,
-    'Task' || 'Agent' => Icons.account_tree_outlined,
-    _ => Icons.build_outlined,
-  };
 
   @override
   Widget build(BuildContext context) {
-    final o = widget.oge;
     final t = Theme.of(context);
-    final renk = o.hata ? t.colorScheme.error : t.colorScheme.onSurfaceVariant;
+    final r = t.colorScheme;
+    final a = widget.araclar;
+    final suruyor = a.any((x) => !x.bitti);
+    final hata = a.where((x) => x.hata).length;
+    final son = a.last;
+    final (sonAd, sonSimge) = aracGorunumu(son.ad);
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 3),
+      margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
-        border: Border.all(color: t.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(10),
+        color: r.surfaceContainerLow,
+        border: Border.all(color: r.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
             onTap: () => setState(() => _acik = !_acik),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
-                  Icon(_simge(o.ad), size: 16, color: renk),
-                  const SizedBox(width: 8),
-                  Text(
-                    o.ad,
-                    style: t.textTheme.labelLarge?.copyWith(color: renk),
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: suruyor
+                        ? const CircularProgressIndicator(strokeWidth: 1.8)
+                        : Icon(
+                            hata > 0
+                                ? Icons.error_outline
+                                : Icons.check_circle_outline,
+                            size: 16,
+                            color: hata > 0 ? r.error : r.onSurfaceVariant,
+                          ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
+                  Text(
+                    '${a.length} adım',
+                    style: t.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(sonSimge, size: 14, color: r.onSurfaceVariant),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      o.ozet,
+                      '$sonAd  ${son.ozet}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: t.textTheme.bodySmall?.copyWith(
-                        fontFamily: 'monospace',
-                        color: t.colorScheme.onSurfaceVariant,
+                        color: r.onSurfaceVariant,
                       ),
                     ),
                   ),
-                  if (!o.bitti)
-                    const SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(strokeWidth: 1.5),
-                    )
-                  else
-                    Icon(
-                      _acik ? Icons.expand_less : Icons.expand_more,
-                      size: 18,
-                      color: t.colorScheme.outline,
-                    ),
+                  Icon(
+                    _acik ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: r.onSurfaceVariant,
+                  ),
                 ],
               ),
             ),
           ),
           if (_acik)
-            Container(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _KodKutusu(metin: o.girdi),
-                  if ((o.cikti ?? '').isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _KodKutusu(metin: o.cikti!, hata: o.hata),
-                  ],
-                ],
+                children: [for (final x in a) _AracSatiri(oge: x)],
               ),
             ),
         ],
@@ -344,159 +532,301 @@ class _AracKartiState extends State<_AracKarti> {
   }
 }
 
-class _KodKutusu extends StatelessWidget {
-  const _KodKutusu({required this.metin, this.hata = false});
-  final String metin;
-  final bool hata;
+class _AracSatiri extends StatefulWidget {
+  const _AracSatiri({required this.oge});
+  final AracOge oge;
+
+  @override
+  State<_AracSatiri> createState() => _AracSatiriState();
+}
+
+class _AracSatiriState extends State<_AracSatiri> {
+  bool _acik = false;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 280),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: hata
-            ? t.colorScheme.errorContainer
-            : t.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: SingleChildScrollView(
-        child: Text(
-          metin,
-          style: TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 12,
-            color: hata ? t.colorScheme.onErrorContainer : null,
+    final r = t.colorScheme;
+    final o = widget.oge;
+    final (ad, simge) = aracGorunumu(o.ad);
+    final fark = _acik ? girdidenFark(o.girdi) : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => setState(() => _acik = !_acik),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            child: Row(
+              children: [
+                Icon(
+                  simge,
+                  size: 15,
+                  color: o.hata ? r.error : r.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 92,
+                  child: Text(
+                    ad,
+                    style: t.textTheme.labelMedium?.copyWith(
+                      color: o.hata ? r.error : r.onSurface,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    o.ozet,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: monospace.copyWith(
+                      fontSize: 12,
+                      color: r.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                if (!o.bitti)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.5),
+                  ),
+              ],
+            ),
           ),
         ),
-      ),
+        if (_acik)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(29, 2, 4, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (fark != null)
+                  for (final (yol, satirlar) in fark)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: DiffGorunumu(
+                        yol: yol,
+                        satirlar: satirlar,
+                        enFazla: 300,
+                      ),
+                    )
+                else
+                  KodKutusu(metin: _girdiMetni(o.girdi), enFazla: 160),
+                if ((o.cikti ?? '').trim().isNotEmpty && fark == null) ...[
+                  const SizedBox(height: 6),
+                  KodKutusu(metin: o.cikti!, hata: o.hata),
+                ],
+              ],
+            ),
+          ),
+      ],
     );
   }
+}
+
+String _girdiMetni(String girdi) {
+  try {
+    final j = jsonDecode(girdi);
+    if (j is Map && j['command'] != null) return '\$ ${j['command']}';
+    if (j is Map) return const JsonEncoder.withIndent('  ').convert(j);
+  } catch (_) {}
+  return girdi;
 }
 
 class _OnayKarti extends StatelessWidget {
-  const _OnayKarti({required this.oge, required this.karar});
+  const _OnayKarti({
+    required this.oge,
+    required this.ajan,
+    required this.karar,
+  });
+
   final OnayOge oge;
+  final String ajan;
   final void Function(String) karar;
 
-  String _okunur() {
-    try {
-      final j = jsonDecode(oge.girdi);
-      if (j is Map) {
-        if (j['command'] != null) return j['command'].toString();
-        if (j['content'] != null) {
-          return '${j['file_path'] ?? ''}\n\n${j['content']}';
-        }
-        if (j['old_string'] != null) {
-          return '${j['file_path'] ?? ''}\n\n− ${j['old_string']}\n+ ${j['new_string']}';
-        }
-        if (j['changes'] is List) {
-          return [
-            for (final c in (j['changes'] as List).cast<Map>())
-              '${c['path']}\n${c['diff'] ?? ''}',
-          ].join('\n\n');
-        }
-      }
-    } catch (_) {}
-    return oge.girdi;
+  String get _baslik {
+    final yol = oge.ozet.split('/').last;
+    return switch (oge.arac) {
+      'Bash' || 'Komut' => 'Komut çalıştırmak istiyor',
+      'Write' => 'Dosya oluşturmak istiyor: $yol',
+      'Edit' || 'MultiEdit' => 'Dosyayı düzenlemek istiyor: $yol',
+      'Dosya değişikliği' => 'Dosyaları değiştirmek istiyor',
+      'WebFetch' => 'Bir sayfayı okumak istiyor',
+      'WebSearch' => 'Web\'de aramak istiyor',
+      _ => '${oge.arac} kullanmak istiyor',
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    final kapali = oge.kapandi;
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      color: kapali ? null : t.colorScheme.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final r = t.colorScheme;
+    if (oge.kapandi) {
+      final (simge, metin, renk) = switch (oge.karar) {
+        'red' => (Icons.block, 'Reddedildi', r.error),
+        'hep' => (Icons.done_all, 'Bu oturumda hep izinli', r.onSurfaceVariant),
+        _ => (Icons.check, 'İzin verildi', r.onSurfaceVariant),
+      };
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Icon(
-                  kapali ? Icons.check_circle_outline : Icons.help_outline,
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    kapali
-                        ? '${oge.arac}: ${switch (oge.karar) {
-                            'izin' => 'izin verildi',
-                            'hep' => 'bu oturumda hep izinli',
-                            'red' => 'reddedildi',
-                            _ => 'kapandı',
-                          }}'
-                        : '${oge.arac} için onay gerekiyor',
-                    style: t.textTheme.titleSmall,
-                  ),
-                ),
-              ],
-            ),
-            if (oge.neden.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(oge.neden, style: t.textTheme.bodySmall),
-            ],
-            if (!kapali) ...[
-              const SizedBox(height: 8),
-              _KodKutusu(metin: _okunur()),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.end,
-                children: [
-                  OutlinedButton(
-                    onPressed: () => karar('red'),
-                    child: const Text('Reddet'),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => karar('hep'),
-                    child: const Text('Bu oturumda hep'),
-                  ),
-                  FilledButton(
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      karar('izin');
-                    },
-                    child: const Text('İzin ver'),
-                  ),
-                ],
+            Icon(simge, size: 15, color: renk),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$metin · ${oge.ozet}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: t.textTheme.bodySmall?.copyWith(color: renk),
               ),
-            ],
+            ),
           ],
         ),
+      );
+    }
+    final fark = girdidenFark(oge.girdi);
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: r.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: r.primary.withValues(alpha: .55), width: 1.3),
+        boxShadow: [
+          BoxShadow(color: r.primary.withValues(alpha: .10), blurRadius: 18),
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: r.primary.withValues(alpha: .14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  aracGorunumu(oge.arac).$2,
+                  size: 16,
+                  color: r.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${ajanAdi(ajan)} izin istiyor',
+                      style: t.textTheme.labelSmall?.copyWith(
+                        color: r.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      _baslik,
+                      style: t.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (oge.neden.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              oge.neden,
+              style: t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant),
+            ),
+          ],
+          const SizedBox(height: 12),
+          if (fark != null)
+            for (final (yol, satirlar) in fark)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: DiffGorunumu(yol: yol, satirlar: satirlar),
+              )
+          else
+            KodKutusu(metin: _girdiMetni(oge.girdi), enFazla: 200),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.end,
+            children: [
+              OutlinedButton(
+                onPressed: () => karar('red'),
+                child: const Text('Reddet'),
+              ),
+              OutlinedButton(
+                onPressed: () => karar('hep'),
+                child: const Text('Bu oturumda hep'),
+              ),
+              FilledButton.icon(
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  karar('izin');
+                },
+                icon: const Icon(Icons.check, size: 18),
+                label: const Text('İzin ver'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-class _DosyaCipi extends StatelessWidget {
-  const _DosyaCipi({required this.oge, required this.ac});
-  final DosyaOge oge;
-  final VoidCallback ac;
+class _Dosyalar extends StatelessWidget {
+  const _Dosyalar({required this.dosyalar, required this.ac});
+  final List<DosyaOge> dosyalar;
+  final void Function(String) ac;
 
   @override
   Widget build(BuildContext context) {
-    final silindi = oge.eylem == 'silindi';
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: ActionChip(
-          avatar: Icon(dosyaSimgesi(oge.yol), size: 16),
-          label: Text(
-            '${switch (oge.eylem) {
-              'yeni' => 'Yeni',
-              'silindi' => 'Silindi',
-              _ => 'Değişti',
-            }}: ${oge.goreli}',
-          ),
-          onPressed: silindi ? null : ac,
-        ),
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final d in dosyalar)
+            ActionChip(
+              avatar: Icon(dosyaSimgesi(d.yol), size: 15),
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(d.goreli),
+                  const SizedBox(width: 6),
+                  Text(
+                    switch (d.eylem) {
+                      'yeni' => 'yeni',
+                      'silindi' => 'silindi',
+                      _ => 'değişti',
+                    },
+                    style: t.textTheme.labelSmall?.copyWith(
+                      color: d.eylem == 'yeni'
+                          ? const Color(0xFF22C55E)
+                          : d.eylem == 'silindi'
+                          ? r.error
+                          : r.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+              onPressed: d.eylem == 'silindi' ? null : () => ac(d.yol),
+            ),
+        ],
       ),
     );
   }
@@ -509,21 +839,37 @@ class _BittiSatiri extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    if (oge.hata == null && oge.maliyet == null) {
-      return const SizedBox(height: 6);
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Text(
-        oge.hata ??
-            (oge.maliyet != null
-                ? 'Tur bitti · \$${oge.maliyet!.toStringAsFixed(3)}'
-                : ''),
-        style: t.textTheme.bodySmall?.copyWith(
-          color: oge.hata != null
-              ? t.colorScheme.error
-              : t.colorScheme.onSurfaceVariant,
+    final r = t.colorScheme;
+    if (oge.hata != null) {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: r.errorContainer,
+          borderRadius: BorderRadius.circular(10),
         ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, size: 16, color: r.onErrorContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                oge.hata!,
+                style: t.textTheme.bodySmall?.copyWith(
+                  color: r.onErrorContainer,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (oge.maliyet == null) return const SizedBox(height: 4);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 6),
+      child: Text(
+        '\$${oge.maliyet!.toStringAsFixed(3)}',
+        style: t.textTheme.labelSmall?.copyWith(color: r.outline),
       ),
     );
   }
@@ -534,139 +880,8 @@ class _UyariSatiri extends StatelessWidget {
   final String metin;
 
   @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Text(
-        metin,
-        style: t.textTheme.bodySmall?.copyWith(
-          color: t.colorScheme.error,
-          fontFamily: 'monospace',
-        ),
-      ),
-    );
-  }
-}
-
-class _Yazici extends StatelessWidget {
-  const _Yazici({
-    required this.denetleyici,
-    required this.ekler,
-    required this.ekYukleniyor,
-    required this.calisiyor,
-    required this.gonder,
-    required this.durdur,
-    required this.ekSec,
-    required this.ekKaldir,
-  });
-
-  final TextEditingController denetleyici;
-  final List<String> ekler;
-  final bool ekYukleniyor;
-  final bool calisiyor;
-  final VoidCallback gonder;
-  final VoidCallback durdur;
-  final VoidCallback ekSec;
-  final void Function(String) ekKaldir;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    return Material(
-      color: t.colorScheme.surfaceContainer,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 860),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (ekler.isNotEmpty || ekYukleniyor)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: 6,
-                        children: [
-                          for (final e in ekler)
-                            InputChip(
-                              label: Text(e.split('/').last),
-                              onDeleted: () => ekKaldir(e),
-                            ),
-                          if (ekYukleniyor)
-                            const Padding(
-                              padding: EdgeInsets.all(8),
-                              child: SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      IconButton(
-                        tooltip: 'Dosya ekle',
-                        onPressed: ekSec,
-                        icon: const Icon(Icons.attach_file),
-                      ),
-                      Expanded(
-                        child: CallbackShortcuts(
-                          bindings: {
-                            const SingleActivator(
-                              LogicalKeyboardKey.enter,
-                              control: true,
-                            ): gonder,
-                          },
-                          child: TextField(
-                            controller: denetleyici,
-                            minLines: 1,
-                            maxLines: 6,
-                            textInputAction: TextInputAction.newline,
-                            decoration: InputDecoration(
-                              hintText: calisiyor
-                                  ? 'Araya yaz — çalışan işe eklenir'
-                                  : 'Mesaj yaz',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      if (calisiyor)
-                        IconButton.filledTonal(
-                          tooltip: 'Durdur',
-                          onPressed: durdur,
-                          icon: const Icon(Icons.stop),
-                        ),
-                      IconButton.filled(
-                        tooltip: 'Gönder',
-                        onPressed: gonder,
-                        icon: const Icon(Icons.arrow_upward),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: KodKutusu(metin: metin, hata: true, enFazla: 140),
+  );
 }

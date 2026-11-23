@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 
+import 'arayuz/tema.dart';
 import 'ekran/ana_ekran.dart';
 import 'ekran/kurulum_ekrani.dart';
 import 'model/calisma.dart';
@@ -7,6 +9,7 @@ import 'servis/ayarlar.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   final ayarlar = await Ayarlar.yukle();
   final calisma = Calisma(ayarlar);
   runApp(AtolyeUygulamasi(calisma: calisma));
@@ -29,30 +32,30 @@ class _AtolyeUygulamasiState extends State<AtolyeUygulamasi> {
     if (_kurulumBitti) widget.calisma.baslat();
   }
 
-  static ThemeData _tema(Brightness parlaklik) => ThemeData(
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFFB4652F),
-      brightness: parlaklik,
-    ),
-    visualDensity: VisualDensity.standard,
-  );
-
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Atölye',
-      debugShowCheckedModeBanner: false,
-      theme: _tema(Brightness.light),
-      darkTheme: _tema(Brightness.dark),
-      home: _kurulumBitti
-          ? AnaEkran(calisma: widget.calisma)
-          : KurulumEkrani(
-              calisma: widget.calisma,
-              bitti: () {
-                setState(() => _kurulumBitti = true);
-                widget.calisma.baslat();
-              },
-            ),
+    return ListenableBuilder(
+      listenable: widget.calisma,
+      builder: (context, _) => MaterialApp(
+        title: 'Atölye',
+        debugShowCheckedModeBanner: false,
+        theme: Tema.acik(),
+        darkTheme: Tema.koyu(),
+        themeMode: switch (widget.calisma.tema) {
+          ThemeModeSecimi.acik => ThemeMode.light,
+          ThemeModeSecimi.koyu => ThemeMode.dark,
+          ThemeModeSecimi.sistem => ThemeMode.system,
+        },
+        home: _kurulumBitti
+            ? AnaEkran(calisma: widget.calisma)
+            : KurulumEkrani(
+                calisma: widget.calisma,
+                bitti: () {
+                  setState(() => _kurulumBitti = true);
+                  widget.calisma.baslat();
+                },
+              ),
+      ),
     );
   }
 }

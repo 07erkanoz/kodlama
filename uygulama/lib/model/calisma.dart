@@ -7,6 +7,8 @@ import '../servis/kopru_istemci.dart';
 import '../servis/termux.dart';
 import 'sohbet.dart';
 
+enum ThemeModeSecimi { sistem, acik, koyu }
+
 /// Uygulamanın tamamının durumu: köprü bağlantısı, oturumlar, seçili sohbet
 /// ve önizlenen dosya. Ekran katlanıp açıldığında ya da döndüğünde düzen
 /// değişir ama bu nesne aynı kalır; sohbet yarıda kesilmez.
@@ -23,10 +25,14 @@ class Calisma extends ChangeNotifier {
 
   List<Map<String, dynamic>> oturumlar = [];
   List<Map<String, dynamic>> ajanlar = [];
+  List<Map<String, dynamic>> projeler = [];
   Map<String, List<dynamic>> kotalar = {};
   String? kok;
   Sohbet? secili;
   String? onizlenen;
+
+  /// Geniş ekranda sağdaki dosya paneli açık mı.
+  bool dosyaPaneli = true;
   String? hata;
 
   BaglantiDurumu get baglanti => istemci.durum.value;
@@ -90,6 +96,11 @@ class Calisma extends ChangeNotifier {
         (k, v) => MapEntry(k as String, v as List),
       );
       kok = d['kok'] as String?;
+      final p = await istemci.iste('projeler');
+      projeler = ((p['projeler'] as List?) ?? const [])
+          .cast<Map>()
+          .map((m) => m.cast<String, dynamic>())
+          .toList();
       final o = await istemci.iste('oturumlar');
       oturumlar = ((o['oturumlar'] as List?) ?? const [])
           .cast<Map>()
@@ -127,6 +138,41 @@ class Calisma extends ChangeNotifier {
     await sec(ozet);
   }
 
+  /// Seçili oturumdan çık: başlangıç ekranına dön.
+  void baslangica() {
+    secili?.dispose();
+    secili = null;
+    onizlenen = null;
+    notifyListeners();
+  }
+
+  /// Başlangıç ekranından tek adımda: oturumu aç ve ilk mesajı gönder.
+  Future<void> hizliBaslat({
+    required String ajan,
+    required String cwd,
+    required String metin,
+    String mod = 'sor',
+  }) async {
+    await yeniOturum(ajan: ajan, cwd: cwd, mod: mod);
+    await secili?.gonder(metin);
+  }
+
+  Future<String> projeOlustur(String ad) async {
+    final r = await istemci.iste('proje_ac', {'ad': ad});
+    await yenile();
+    return r['yol'] as String;
+  }
+
+  ThemeModeSecimi get tema => ThemeModeSecimi.values.firstWhere(
+    (t) => t.name == ayarlar.tema,
+    orElse: () => ThemeModeSecimi.sistem,
+  );
+
+  void temaDegistir(ThemeModeSecimi t) {
+    ayarlar.tema = t.name;
+    notifyListeners();
+  }
+
   Future<void> oturumSil(String id) async {
     await istemci.iste('oturum_sil', {'oturum': id});
     oturumlar.removeWhere((o) => o['id'] == id);
@@ -134,6 +180,12 @@ class Calisma extends ChangeNotifier {
       secili?.dispose();
       secili = null;
     }
+    notifyListeners();
+  }
+
+  void dosyaPaneliDegistir() {
+    dosyaPaneli = !dosyaPaneli;
+    if (!dosyaPaneli) onizlenen = null;
     notifyListeners();
   }
 

@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import csv
+import io
 import json
 import mimetypes
 import os
@@ -31,6 +33,8 @@ import sys
 import time
 import urllib.parse
 import uuid
+import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 from websockets.asyncio.server import serve
@@ -122,6 +126,181 @@ def arac_ozeti(ad: str, girdi: dict, cwd: Path | None = None) -> str:
                 v = goreli(v, cwd)
             return kisa(v, 200)
     return ""
+
+
+# ---------------------------------------------------------------- belgeler
+#
+# Ajanın ürettiği Office belgeleri telefonda okunabilsin diye köprü onları
+# Markdown'a (Word, PowerPoint) ya da tabloya (Excel, CSV) çevirir. Yalnız
+# Python'un kendi kütüphaneleri: Termux'a ek paket gerekmez.
+
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+SATIR_SINIRI, SUTUN_SINIRI = 1000, 60
+
+
+def _hucre(s: str) -> str:
+    return s.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _docx_paragraf(p) -> str:
+    parcalar = []
+    for r in p.iter(W + "r"):
+        metin = "".join(t.text or "" for t in r.iter(W + "t"))
+        if r.find(W + "tab") is not None:
+            metin = "\t" + metin
+        if not metin:
+            continue
+        rpr = r.find(W + "rPr")
+        kalin = rpr is not None and rpr.find(W + "b") is not None
+        egik = rpr is not None and rpr.find(W + "i") is not None
+        if kalin and metin.strip():
+            metin = f"**{metin.strip()}** "
+        elif egik and metin.strip():
+            metin = f"*{metin.strip()}* "
+        parcalar.append(metin)
+    metin = "".join(parcalar).strip()
+    ppr = p.find(W + "pPr")
+    if ppr is not None and metin:
+        stil = ppr.find(W + "pStyle")
+        ad = (stil.get(W + "val") if stil is not None else "") or ""
+        seviye = ppr.find(W + "outlineLvl")
+        m = re.search(r"(?:heading|ba[sş]l[iı]k)\s*(\d)", ad, re.I)
+        if m or seviye is not None:
+            n = int(m.group(1)) if m else int(seviye.get(W + "val", "0")) + 1
+            return "#" * max(1, min(n, 6)) + " " + metin.replace("**", "")
+        if ad.lower() in ("title", "konubaşlığı", "konubasligi"):
+            return "# " + metin.replace("**", "")
+        if ppr.find(W + "numPr") is not None:
+            return "- " + metin
+    return metin
+
+
+def docx_md(yol: Path) -> str:
+    with zipfile.ZipFile(yol) as z:
+        kok = ET.fromstring(z.read("word/document.xml"))
+    govde = kok.find(W + "body")
+    bloklar = []  # her biri ayrı Markdown bloğu (paragraf, başlık, tablo)
+    for e in list(govde) if govde is not None else []:
+        if e.tag == W + "p":
+            metin = _docx_paragraf(e)
+            if metin:
+                bloklar.append(metin)
+            if e.find(".//" + W + "drawing") is not None:
+                bloklar.append("*[resim]*")
+        elif e.tag == W + "tbl":
+            tablo = []
+            for tr in e.iter(W + "tr"):
+                tablo.append([_hucre(" ".join(_docx_paragraf(p) for p in tc.iter(W + "p"))) for tc in tr.iter(W + "tc")])
+            if tablo:
+                genislik = max(len(r) for r in tablo)
+                tablo = [r + [""] * (genislik - len(r)) for r in tablo]
+                satirlar = ["| " + " | ".join(tablo[0]) + " |", "|" + "---|" * genislik]
+                satirlar += ["| " + " | ".join(r) + " |" for r in tablo[1:]]
+                bloklar.append("\n".join(satirlar))
+    # art arda liste maddeleri tek liste olsun
+    out = []
+    for b in bloklar:
+        if out and b.startswith("- ") and out[-1].split("\n")[-1].startswith("- "):
+            out[-1] += "\n" + b
+        else:
+            out.append(b)
+    return "\n\n".join(out)
+
+
+def pptx_md(yol: Path) -> str:
+    with zipfile.ZipFile(yol) as z:
+        slaytlar = sorted(
+            (n for n in z.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", n)),
+            key=lambda n: int(re.search(r"(\d+)", n.rsplit("/", 1)[1]).group(1)),
+        )
+        out = []
+        for i, n in enumerate(slaytlar, 1):
+            kok = ET.fromstring(z.read(n))
+            paragraflar = ["".join(t.text or "" for t in p.iter(A + "t")).strip() for p in kok.iter(A + "p")]
+            paragraflar = [p for p in paragraflar if p]
+            out.append(f"## Slayt {i}" + (f": {paragraflar[0]}" if paragraflar else ""))
+            out += [f"- {p}" for p in paragraflar[1:]]
+            out.append("")
+    return "\n".join(out)
+
+
+def _sutun_no(ref: str) -> int:
+    n = 0
+    for ch in re.match(r"[A-Z]+", ref).group(0):
+        n = n * 26 + ord(ch) - 64
+    return n - 1
+
+
+def xlsx_tablo(yol: Path) -> list[dict]:
+    with zipfile.ZipFile(yol) as z:
+        ortak = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).iter(S + "si"):
+                ortak.append("".join(t.text or "" for t in si.iter(S + "t")))
+        iliskiler = {}
+        rels = "xl/_rels/workbook.xml.rels"
+        if rels in z.namelist():
+            for r in ET.fromstring(z.read(rels)):
+                hedef = r.get("Target", "")
+                iliskiler[r.get("Id")] = hedef.lstrip("/") if hedef.startswith("/") else "xl/" + hedef
+        sayfalar = []
+        for sh in ET.fromstring(z.read("xl/workbook.xml")).iter(S + "sheet"):
+            yol_ = iliskiler.get(sh.get(R + "id"))
+            if not yol_ or yol_ not in z.namelist():
+                continue
+            satirlar: list[list[str]] = []
+            for row in ET.fromstring(z.read(yol_)).iter(S + "row"):
+                if len(satirlar) >= SATIR_SINIRI:
+                    break
+                satir: list[str] = []
+                for c in row.iter(S + "c"):
+                    no = _sutun_no(c.get("r", "A1")) if c.get("r") else len(satir)
+                    if no >= SUTUN_SINIRI:
+                        continue
+                    tur, v = c.get("t"), c.find(S + "v")
+                    if tur == "s" and v is not None:
+                        deger = ortak[int(v.text)] if v.text and int(v.text) < len(ortak) else ""
+                    elif tur == "inlineStr":
+                        deger = "".join(t.text or "" for t in c.iter(S + "t"))
+                    else:
+                        deger = v.text if v is not None and v.text else ""
+                        if re.fullmatch(r"-?\d+\.\d{6,}", deger):
+                            deger = f"{float(deger):.6g}"
+                    satir += [""] * (no - len(satir))
+                    satir.append(deger)
+                satirlar.append(satir)
+            sayfalar.append({"ad": sh.get("name"), "satirlar": satirlar})
+    return sayfalar
+
+
+def csv_tablo(yol: Path) -> list[dict]:
+    ham = yol.read_bytes()[: 4 * 1024 * 1024].decode("utf-8", errors="replace")
+    try:
+        lehce = csv.Sniffer().sniff(ham[:4096], delimiters=",;\t|")
+    except csv.Error:
+        lehce = csv.excel_tab if yol.suffix.lower() == ".tsv" else csv.excel
+    satirlar = []
+    for r in csv.reader(io.StringIO(ham), lehce):
+        satirlar.append(r[:SUTUN_SINIRI])
+        if len(satirlar) >= SATIR_SINIRI:
+            break
+    return [{"ad": yol.name, "satirlar": satirlar}]
+
+
+def belge_oku(yol: Path) -> dict:
+    u = yol.suffix.lower()
+    if u == ".docx":
+        return {"tur": "markdown", "metin": docx_md(yol)}
+    if u == ".pptx":
+        return {"tur": "markdown", "metin": pptx_md(yol)}
+    if u in (".xlsx", ".xlsm"):
+        return {"tur": "tablo", "sayfalar": xlsx_tablo(yol)}
+    if u in (".csv", ".tsv"):
+        return {"tur": "tablo", "sayfalar": csv_tablo(yol)}
+    raise ValueError(f"bu belge türü çevrilemiyor: {u}")
 
 
 # ---------------------------------------------------------------- oturum
@@ -365,7 +544,7 @@ class ClaudeOturum(Oturum):
                 elif ct == "tool_use":
                     girdi = c.get("input") or {}
                     self.yay({"ev": "arac", "aid": c.get("id"), "ad": c.get("name"),
-                              "ozet": arac_ozeti(c.get("name", ""), girdi, self.cwd), "girdi": kisa(girdi)})
+                              "ozet": arac_ozeti(c.get("name", ""), girdi, self.cwd), "girdi": kisa(girdi, 60000)})
                     if c.get("name") in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
                         yol = girdi.get("file_path") or girdi.get("notebook_path")
                         if yol:
@@ -395,7 +574,7 @@ class ClaudeOturum(Oturum):
                 await self.onayla(rid, "izin")
                 return
             self.yay({"ev": "onay", "rid": rid, "arac": arac, "ozet": arac_ozeti(arac, girdi, self.cwd),
-                      "girdi": kisa(girdi, 8000), "neden": istek.get("decision_reason") or ""})
+                      "girdi": kisa(girdi, 60000), "neden": istek.get("decision_reason") or ""})
         elif t == "control_cancel_request":
             self.onay_kapandi(ev.get("request_id"))
         elif t == "rate_limit_event":
@@ -541,7 +720,7 @@ class CodexOturum(Oturum):
                     girdi = {"changes": oge.get("changes")}
                 self.onaylar[anahtar] = {"arac": arac, "_id": rid}
                 self.yay({"ev": "onay", "rid": anahtar, "arac": arac, "ozet": kisa(ozet, 300),
-                          "girdi": kisa(girdi, 8000), "neden": prm.get("reason") or ""})
+                          "girdi": kisa(girdi, 60000), "neden": prm.get("reason") or ""})
             else:
                 await self.yaz({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "desteklenmiyor"}})
             return
@@ -560,7 +739,7 @@ class CodexOturum(Oturum):
             elif tur == "fileChange":
                 yollar = [goreli(c.get("path", ""), self.cwd) for c in oge.get("changes") or []]
                 self.yay({"ev": "arac", "aid": oge.get("id"), "ad": "Düzenle", "ozet": ", ".join(yollar),
-                          "girdi": kisa({"changes": oge.get("changes")})})
+                          "girdi": kisa({"changes": oge.get("changes")}, 60000)})
             elif tur in ("mcpToolCall", "webSearch", "dynamicToolCall"):
                 self.yay({"ev": "arac", "aid": oge.get("id"), "ad": tur,
                           "ozet": kisa(oge.get("query") or oge.get("tool") or "", 200), "girdi": kisa(oge)})
@@ -804,6 +983,8 @@ class Kopru:
             return self.listele(m.get("yol") or KOK)
         if op == "oku":
             return self.oku(m["yol"])
+        if op == "belge":
+            return belge_oku(guvenli_yol(m["yol"]))
         if op == "yukle":
             o = self._oturum(m)
             hedef_klasor = o.cwd / ".atolye" / "ekler"
