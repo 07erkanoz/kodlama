@@ -135,8 +135,10 @@ class Onizleme extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             child: FilledButton.tonalIcon(
-              onPressed: () =>
-                  launchUrl(adres, mode: LaunchMode.externalApplication),
+              onPressed: () => launchUrl(
+                calisma.istemci.sayfaAdresi(yol),
+                mode: LaunchMode.externalApplication,
+              ),
               icon: const Icon(Icons.open_in_browser),
               label: const Text('Tarayıcıda aç'),
             ),

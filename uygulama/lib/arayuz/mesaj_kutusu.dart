@@ -2,8 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Mesaj yazma kutusu: üstte ekler, ortada metin, altta seçim çipleri ve
-/// gönder/durdur. Fiziksel klavyesi olan cihazlarda (masaüstü, web)
+/// Mesaj yazma kutusu: üstte ekler, ortada geniş metin alanı, altta tek
+/// satırda ekle, seçim çipleri ve gönder/durdur. Çipler alt satıra taşmaz,
+/// sığmazsa kısalır. Fiziksel klavyesi olan cihazlarda (masaüstü, web)
 /// Enter gönderir, Shift+Enter yeni satır açar.
 class MesajKutusu extends StatefulWidget {
   const MesajKutusu({
@@ -17,10 +18,12 @@ class MesajKutusu extends StatefulWidget {
     this.ekKaldir,
     this.ekYukleniyor = false,
     this.cipler = const [],
+    this.sagda = const [],
     this.ipucu = 'Mesaj yaz',
     this.gonderilebilir = true,
     this.odak,
     this.otomatikOdak = false,
+    this.enAzSatir = 2,
   });
 
   final TextEditingController denetleyici;
@@ -31,11 +34,18 @@ class MesajKutusu extends StatefulWidget {
   final List<String> ekler;
   final void Function(String)? ekKaldir;
   final bool ekYukleniyor;
+  /// Araç satırının solundaki düğmeler (model seçici gibi); sığmazsa kısalır.
   final List<Widget> cipler;
+
+  /// Gönder düğmesinin hemen solundaki düğmeler (onay biçimi gibi).
+  final List<Widget> sagda;
   final String ipucu;
   final bool gonderilebilir;
   final FocusNode? odak;
   final bool otomatikOdak;
+
+  /// Boşken metin alanının yüksekliği (satır).
+  final int enAzSatir;
 
   @override
   State<MesajKutusu> createState() => _MesajKutusuState();
@@ -88,11 +98,10 @@ class _MesajKutusuState extends State<MesajKutusu> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       decoration: BoxDecoration(
-        color: r.surfaceContainer,
-        borderRadius: BorderRadius.circular(18),
+        color: r.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: _odakta ? r.primary.withValues(alpha: .6) : r.outlineVariant,
-          width: _odakta ? 1.4 : 1,
+          color: _odakta ? r.primary.withValues(alpha: .5) : r.outlineVariant,
         ),
         boxShadow: [
           BoxShadow(
@@ -137,55 +146,62 @@ class _MesajKutusuState extends State<MesajKutusu> {
             controller: widget.denetleyici,
             focusNode: _odak,
             autofocus: widget.otomatikOdak,
-            minLines: 1,
-            maxLines: 10,
+            minLines: widget.enAzSatir,
+            maxLines: 12,
             textInputAction: TextInputAction.newline,
-            style: t.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.45),
+            style: t.textTheme.bodyLarge?.copyWith(fontSize: 16, height: 1.45),
             decoration: InputDecoration(
               hintText: widget.ipucu,
               filled: false,
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
-              contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+              contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 0, 8, 8),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 if (widget.ekle != null)
-                  IconButton(
-                    tooltip: 'Dosya ekle',
-                    onPressed: widget.ekle,
-                    icon: const Icon(Icons.add_circle_outline, size: 22),
-                  ),
+                  _Yuvarlak(
+                    ipucu: 'Dosya ekle',
+                    onTap: widget.ekle,
+                    child: Icon(Icons.add, size: 22, color: r.onSurfaceVariant),
+                  )
+                else
+                  const SizedBox(width: 4),
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: widget.cipler,
-                    ),
+                  child: Row(
+                    children: [
+                      for (final c in widget.cipler) Flexible(child: c),
+                    ],
                   ),
                 ),
+                ...widget.sagda,
+                const SizedBox(width: 4),
                 if (widget.calisiyor && widget.durdur != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
-                    child: IconButton.filledTonal(
-                      tooltip: 'Durdur',
-                      onPressed: widget.durdur,
-                      icon: const Icon(Icons.stop_rounded),
+                    child: _Yuvarlak(
+                      ipucu: 'Durdur',
+                      onTap: widget.durdur,
+                      cerceve: r.outline.withValues(alpha: .5),
+                      zemin: r.surface,
+                      child: Icon(Icons.stop_rounded, size: 18, color: r.onSurface),
                     ),
                   ),
-                IconButton.filled(
-                  tooltip: _enterGonderir ? 'Gönder (Enter)' : 'Gönder',
-                  onPressed: dolu && widget.gonderilebilir
-                      ? widget.gonder
-                      : null,
-                  icon: const Icon(Icons.arrow_upward_rounded),
+                _Yuvarlak(
+                  ipucu: _enterGonderir ? 'Gönder (Enter)' : 'Gönder',
+                  onTap: dolu && widget.gonderilebilir ? widget.gonder : null,
+                  zemin: dolu && widget.gonderilebilir
+                      ? r.onSurface
+                      : r.surfaceContainerHighest,
+                  child: Icon(
+                    Icons.arrow_upward_rounded,
+                    size: 20,
+                    color: dolu && widget.gonderilebilir ? r.surface : r.outline,
+                  ),
                 ),
               ],
             ),
@@ -196,7 +212,39 @@ class _MesajKutusuState extends State<MesajKutusu> {
   }
 }
 
-/// Mesaj kutusunun altındaki küçük seçim çipi (proje, ajan, mod).
+class _Yuvarlak extends StatelessWidget {
+  const _Yuvarlak({
+    required this.child,
+    required this.onTap,
+    required this.ipucu,
+    this.zemin,
+    this.cerceve,
+  });
+
+  final Widget child;
+  final VoidCallback? onTap;
+  final String ipucu;
+  final Color? zemin;
+  final Color? cerceve;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: ipucu,
+    child: Material(
+      color: zemin ?? Colors.transparent,
+      shape: CircleBorder(
+        side: cerceve == null ? BorderSide.none : BorderSide(color: cerceve!),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(width: 36, height: 36, child: Center(child: child)),
+      ),
+    ),
+  );
+}
+
+/// Mesaj kutusunun üstündeki bağlam seçicisi (proje, çalışma yeri).
 class SecimCipi<T> extends StatelessWidget {
   const SecimCipi({
     super.key,
@@ -259,10 +307,12 @@ class SecimCipi<T> extends StatelessWidget {
           ),
       ],
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
-          color: r.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(9),
+          color: r.surface,
+          border: Border.all(color: r.outlineVariant),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -272,9 +322,13 @@ class SecimCipi<T> extends StatelessWidget {
               child: simge,
             ),
             const SizedBox(width: 6),
-            Text(
-              etiket,
-              style: t.textTheme.labelMedium?.copyWith(color: r.onSurface),
+            Flexible(
+              child: Text(
+                etiket,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: t.textTheme.labelLarge?.copyWith(color: r.onSurface, fontSize: 13.5),
+              ),
             ),
             const SizedBox(width: 2),
             Icon(Icons.expand_more, size: 16, color: r.onSurfaceVariant),

@@ -258,133 +258,144 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                         ),
                       ),
                       const SizedBox(height: 22),
-                      MesajKutusu(
-                        denetleyici: _yazi,
-                        gonder: _gonder,
-                        otomatikOdak: !dar,
-                        gonderilebilir:
-                            bagli &&
-                            (proje != null || sunucu != null) &&
-                            ajan != null &&
-                            !_gonderiliyor,
-                        ipucu: ajan == null
-                            ? 'Kurulu ajan bulunamadı'
-                            : '${ajanAdi(ajan)} için bir görev yaz…',
-                        cipler: [
-                          if (c.sunucular.isNotEmpty)
-                            SecimCipi<String>(
-                              simge: Icon(
-                                sunucu == null
-                                    ? Icons.smartphone
-                                    : Icons.dns_outlined,
-                              ),
-                              etiket: sunucu == null
-                                  ? 'Bu cihaz'
-                                  : sunucu['ad'] as String,
-                              ipucu: 'Nerede çalışsın',
-                              secili: _sunucu ?? '',
-                              secenekler: [
-                                ('', 'Bu cihaz', 'Termux içinde', true),
-                                for (final s in c.sunucular)
-                                  (
-                                    s['ad'] as String,
-                                    s['ad'] as String,
-                                    'SSH · ${s['host']}',
-                                    true,
-                                  ),
-                              ],
-                              secildi: (v) => setState(() {
-                                _sunucu = v.isEmpty ? null : v;
-                                _uzakKlasor = null;
-                              }),
-                            ),
-                          if (sunucu != null)
-                            ActionChip(
-                              avatar: const Icon(
-                                Icons.folder_outlined,
-                                size: 15,
-                              ),
-                              label: Text(
-                                _uzakKlasor ??
-                                    sunucu['klasor'] as String? ??
-                                    '~',
-                              ),
-                              onPressed: _uzakKlasorSec,
-                            )
-                          else
-                            SecimCipi<String>(
-                              simge: const Icon(Icons.folder_outlined),
-                              etiket: projeAdi,
-                              ipucu: 'Proje',
-                              secili: proje,
-                              secenekler: [
-                                for (final p in c.projeler)
-                                  (
-                                    p['yol'] as String,
-                                    p['ad'] as String,
-                                    goreliZaman(p['degisme'] as num?),
-                                    true,
-                                  ),
-                                ('+', '+ Yeni proje…', null, true),
-                                ('klon', '⇣ GitHub\'dan klonla…', null, true),
-                              ],
-                              secildi: (v) => v == '+'
-                                  ? _yeniProje()
-                                  : v == 'klon'
-                                  ? _klonla()
-                                  : setState(() => _proje = v),
-                            ),
-                          SecimCipi<String>(
-                            simge: ajan == null
-                                ? const Icon(Icons.smart_toy_outlined)
-                                : AjanRozeti(ajan: ajan, boyut: 16),
-                            etiket: ajan == null ? 'Ajan yok' : ajanAdi(ajan),
-                            ipucu: 'Ajan',
-                            secili: ajan,
-                            secenekler: [
-                              for (final a in c.ajanlar)
-                                (
-                                  a['ad'] as String,
-                                  ajanAdi(a['ad'] as String),
-                                  a['kurulu'] == true
-                                      ? (a['surum'] as String?)
-                                      : 'kurulu değil',
-                                  a['kurulu'] == true,
+                      Row(
+                        children: [
+                          if (c.sunucular.isNotEmpty) ...[
+                            Flexible(
+                              child: SecimCipi<String>(
+                                simge: Icon(
+                                  sunucu == null
+                                      ? Icons.smartphone
+                                      : Icons.dns_outlined,
                                 ),
-                              for (final a in c.ajanlar)
-                                if (a['kurulu'] != true && Termux.destekleniyor)
-                                  (
-                                    'kur:${a['ad']}',
-                                    '+ ${ajanAdi(a['ad'] as String)}\'i kur',
-                                    'Termux\'ta kurulumu başlatır',
-                                    true,
-                                  ),
-                            ],
-                            secildi: (v) => v.startsWith('kur:')
-                                ? _ajanKur(v.substring(4))
-                                : setState(() {
-                                    if (v != _ajan) {
-                                      _model = null;
-                                      _effort = null;
-                                    }
-                                    _ajan = v;
-                                  }),
-                          ),
-                          if (ajan != null)
-                            ...ajanAyarCipleri(
-                              calisma: c,
-                              ajan: ajan,
-                              model: _model,
-                              effort: _effort,
-                              mod: _mod,
-                              modelSec: (v) => setState(() {
-                                _model = v;
-                                _effort = uygunEffort(c, ajan, v, _effort);
-                              }),
-                              effortSec: (v) => setState(() => _effort = v),
-                              modSec: (v) => setState(() => _mod = v),
+                                etiket: sunucu == null
+                                    ? 'Bu cihaz'
+                                    : sunucu['ad'] as String,
+                                ipucu: 'Nerede çalışsın',
+                                secili: _sunucu ?? '',
+                                secenekler: [
+                                  ('', 'Bu cihaz', 'Termux içinde', true),
+                                  for (final s in c.sunucular)
+                                    (
+                                      s['ad'] as String,
+                                      s['ad'] as String,
+                                      'SSH · ${s['host']}',
+                                      true,
+                                    ),
+                                ],
+                                secildi: (v) => setState(() {
+                                  _sunucu = v.isEmpty ? null : v;
+                                  _uzakKlasor = null;
+                                }),
+                              ),
                             ),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: sunucu != null
+                                ? ActionChip(
+                                    avatar: const Icon(
+                                      Icons.folder_outlined,
+                                      size: 15,
+                                    ),
+                                    label: Text(
+                                      _uzakKlasor ??
+                                          sunucu['klasor'] as String? ??
+                                          '~',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    onPressed: _uzakKlasorSec,
+                                  )
+                                : SecimCipi<String>(
+                                    simge: const Icon(Icons.folder_outlined),
+                                    etiket: projeAdi,
+                                    ipucu: 'Proje',
+                                    secili: proje,
+                                    secenekler: [
+                                      for (final p in c.projeler)
+                                        (
+                                          p['yol'] as String,
+                                          p['ad'] as String,
+                                          goreliZaman(p['degisme'] as num?),
+                                          true,
+                                        ),
+                                      ('+', '+ Yeni proje…', null, true),
+                                      (
+                                        'klon',
+                                        '⇣ GitHub\'dan klonla…',
+                                        null,
+                                        true,
+                                      ),
+                                    ],
+                                    secildi: (v) => v == '+'
+                                        ? _yeniProje()
+                                        : v == 'klon'
+                                        ? _klonla()
+                                        : setState(() => _proje = v),
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          _AjanSecici(
+                            ajanlar: c.ajanlar,
+                            secili: ajan,
+                            sec: (v) => setState(() {
+                              if (v != _ajan) {
+                                _model = null;
+                                _effort = null;
+                              }
+                              _ajan = v;
+                            }),
+                            kur: Termux.destekleniyor ? _ajanKur : null,
+                          ),
                         ],
+                      ),
+                      const SizedBox(height: 10),
+                      Builder(
+                        builder: (context) {
+                          final araclar = ajan == null
+                              ? null
+                              : ajanAraclari(
+                                  calisma: c,
+                                  altBaslik: 'Yeni oturumun ayarları',
+                                  ayar: () => (
+                                    ajan: _seciliAjan ?? ajan,
+                                    model: _model,
+                                    effort: _effort,
+                                    mod: _mod,
+                                  ),
+                                  modelSec: (v) => setState(() {
+                                    _model = v;
+                                    _effort = uygunEffort(
+                                      c,
+                                      _seciliAjan ?? ajan,
+                                      v,
+                                      _effort,
+                                    );
+                                  }),
+                                  effortSec: (v) =>
+                                      setState(() => _effort = v),
+                                  modSec: (v) => setState(() => _mod = v),
+                                );
+                          return MesajKutusu(
+                            denetleyici: _yazi,
+                            gonder: _gonder,
+                            otomatikOdak: !dar,
+                            enAzSatir: 4,
+                            gonderilebilir:
+                                bagli &&
+                                (proje != null || sunucu != null) &&
+                                ajan != null &&
+                                !_gonderiliyor,
+                            ipucu: ajan == null
+                                ? 'Kurulu ajan bulunamadı'
+                                : '${ajanAdi(ajan)} için bir görev yaz…',
+                            cipler: [?araclar?.model],
+                            sagda: [?araclar?.bicim],
+                          );
+                        },
                       ),
                       const SizedBox(height: 14),
                       Wrap(
@@ -661,5 +672,119 @@ class _KopruUyarisi extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+
+/// Kutunun üstündeki küçük ajan anahtarı: `[C Claude | X Codex]`. Kurulu
+/// olmayan ajan soluk görünür; dokununca kurulumu önerir.
+class _AjanSecici extends StatelessWidget {
+  const _AjanSecici({
+    required this.ajanlar,
+    required this.secili,
+    required this.sec,
+    this.kur,
+  });
+
+  final List<Map<String, dynamic>> ajanlar;
+  final String? secili;
+  final void Function(String) sec;
+  final Future<void> Function(String)? kur;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    if (ajanlar.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: r.surfaceContainer,
+        border: Border.all(color: r.outlineVariant),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final a in ajanlar)
+            Builder(
+              builder: (context) {
+                final ad = a['ad'] as String;
+                final kurulu = a['kurulu'] == true;
+                final on = ad == secili;
+                return Tooltip(
+                  message: kurulu
+                      ? '${ajanAdi(ad)} ${a['surum'] ?? ''}'.trim()
+                      : '${ajanAdi(ad)} kurulu değil',
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: kurulu
+                        ? () => sec(ad)
+                        : kur == null
+                        ? null
+                        : () => _kurSor(context, ad),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      height: 30,
+                      padding: const EdgeInsets.fromLTRB(5, 0, 10, 0),
+                      decoration: BoxDecoration(
+                        color: on ? r.surface : null,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: on
+                            ? [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: .08),
+                                  blurRadius: 2,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Opacity(
+                        opacity: kurulu ? 1 : .45,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AjanRozeti(ajan: ad, boyut: 20),
+                            const SizedBox(width: 6),
+                            Text(
+                              ad == 'claude' ? 'Claude' : 'Codex',
+                              style: t.textTheme.labelLarge?.copyWith(
+                                fontSize: 13,
+                                color: on ? r.onSurface : r.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _kurSor(BuildContext context, String ad) async {
+    final evet = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${ajanAdi(ad)} kurulu değil'),
+        content: const Text('Termux\'ta kurulumu başlatayım mı?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Kur'),
+          ),
+        ],
+      ),
+    );
+    if (evet == true) await kur!(ad);
   }
 }

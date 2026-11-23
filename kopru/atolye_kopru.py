@@ -44,7 +44,7 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.6.1"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.7.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -618,6 +618,7 @@ class ClaudeOturum(Oturum):
         self._akis: dict[int, str] = {}  # akış blok sırası → metin anahtarı
         self._mesaj = ""
         self._acik: list[str] = []  # akışta başlayıp henüz tamamlanmamış metin anahtarları
+        self._dusAcik: list[str] = []  # aynısı, düşünme blokları için
         self._yazacak: dict[str, str] = {}  # araç kimliği → yazacağı dosya (sonuç gelince bildirilir)
 
     def _args(self):
@@ -678,20 +679,28 @@ class ClaudeOturum(Oturum):
             if et == "message_start":
                 self._mesaj = (e.get("message") or {}).get("id") or uuid.uuid4().hex
                 self._akis = {}
-            elif et == "content_block_start" and (e.get("content_block") or {}).get("type") == "text":
+            elif et == "content_block_start" and (e.get("content_block") or {}).get("type") in ("text", "thinking"):
                 anahtar = f"{self._mesaj}#{e.get('index')}"
                 self._akis[e.get("index")] = anahtar
-                self._acik.append(anahtar)
+                (self._acik if e["content_block"]["type"] == "text" else self._dusAcik).append(anahtar)
             elif et == "content_block_delta" and (e.get("delta") or {}).get("type") == "text_delta":
                 anahtar = self._akis.get(e.get("index"))
                 if anahtar:
                     self.yay({"ev": "parca", "anahtar": anahtar, "metin": e["delta"].get("text", "")}, kaydet=False)
+            elif et == "content_block_delta" and (e.get("delta") or {}).get("type") == "thinking_delta":
+                anahtar = self._akis.get(e.get("index"))
+                if anahtar:
+                    self.yay({"ev": "dusunce_parca", "anahtar": anahtar,
+                              "metin": e["delta"].get("thinking", "")}, kaydet=False)
         elif t == "assistant":
             for c in (ev.get("message") or {}).get("content") or []:
                 ct = c.get("type")
                 if ct == "text" and c.get("text", "").strip():
                     anahtar = self._acik.pop(0) if self._acik else uuid.uuid4().hex
                     self.yay({"ev": "metin", "anahtar": anahtar, "metin": c["text"]})
+                elif ct == "thinking":
+                    anahtar = self._dusAcik.pop(0) if self._dusAcik else uuid.uuid4().hex
+                    self.yay({"ev": "dusunce", "anahtar": anahtar, "metin": c.get("thinking") or ""})
                 elif ct == "tool_use":
                     girdi = c.get("input") or {}
                     self.yay({"ev": "arac", "aid": c.get("id"), "ad": c.get("name"),
@@ -743,6 +752,7 @@ class ClaudeOturum(Oturum):
             if ev.get("session_id") and ev["session_id"] != self.sid:
                 self.sid = ev["session_id"]
             self._acik.clear()
+            self._dusAcik.clear()
             self.tur_sonu()
             hata = (ev.get("result") or ev.get("subtype") or "hata") if ev.get("is_error") else None
             self.yay({"ev": "bitti", "hata": hata, "maliyet": ev.get("total_cost_usd"),
@@ -836,6 +846,7 @@ class CodexOturum(Oturum):
             prm["model"] = self.model
         if self.effort:
             prm["effort"] = self.effort
+        prm["summary"] = "auto"  # düşünme özetleri akışta görünsün
         try:
             sonuc = await self._rpc("turn/start", prm)
             self.tur = sonuc["turn"]["id"]
@@ -892,6 +903,10 @@ class CodexOturum(Oturum):
         tur = oge.get("type")
         if yontem == "item/agentMessage/delta":
             self.yay({"ev": "parca", "anahtar": prm.get("itemId"), "metin": prm.get("delta", "")}, kaydet=False)
+        elif yontem in ("item/reasoning/summaryTextDelta", "item/reasoning/textDelta"):
+            self.yay({"ev": "dusunce_parca", "anahtar": prm.get("itemId"), "metin": prm.get("delta", "")}, kaydet=False)
+        elif yontem == "item/reasoning/summaryPartAdded" and prm.get("summaryIndex"):
+            self.yay({"ev": "dusunce_parca", "anahtar": prm.get("itemId"), "metin": "\n\n"}, kaydet=False)
         elif yontem == "item/started":
             self._ogeler[oge.get("id")] = oge
             if tur == "commandExecution":
@@ -921,6 +936,10 @@ class CodexOturum(Oturum):
             elif tur in ("mcpToolCall", "webSearch", "dynamicToolCall"):
                 self.yay({"ev": "arac_sonuc", "aid": oge.get("id"), "hata": oge.get("status") == "failed",
                           "cikti": kisa(oge.get("result") or oge.get("error") or "")})
+            elif tur == "reasoning":
+                parcalar = oge.get("summary") or oge.get("content") or []
+                metin = "\n\n".join(p if isinstance(p, str) else (p or {}).get("text", "") for p in parcalar)
+                self.yay({"ev": "dusunce", "anahtar": oge.get("id"), "metin": metin})
             elif tur == "imageGeneration" and oge.get("savedPath"):
                 self.dosya(oge["savedPath"], "yeni")
         elif yontem == "serverRequest/resolved":
@@ -1435,10 +1454,20 @@ class Kopru:
         if u.path == "/saglik":
             basliklar["Content-Type"] = "text/plain"
             return Response(200, "OK", basliklar, b"atolye " + SURUM.encode())
-        if u.path != "/dosya" or not secrets.compare_digest(q.get("t", [""])[0], self.token):
+        # /s/<token>/<mutlak yol>: HTML sayfaları göreli css/js/resimleriyle açılsın
+        if u.path.startswith("/s/"):
+            _, _, t, *parca = u.path.split("/", 3)
+            yol = "/" + urllib.parse.unquote(parca[0]) if parca else ""
+        elif u.path == "/dosya":
+            t, yol = q.get("t", [""])[0], q.get("yol", [""])[0]
+        else:
+            t, yol = "", ""
+        if not t or not secrets.compare_digest(t, self.token):
             return Response(403, "Forbidden", basliklar, b"yetkisiz")
         try:
-            p = guvenli_yol(q.get("yol", [""])[0])
+            p = guvenli_yol(yol)
+            if p.is_dir():
+                p = p / "index.html"
             govde = p.read_bytes()
         except (OSError, PermissionError) as e:
             return Response(404, "Not Found", basliklar, str(e).encode())

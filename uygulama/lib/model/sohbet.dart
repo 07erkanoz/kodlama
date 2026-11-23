@@ -21,6 +21,16 @@ class MetinOge extends Oge {
   bool akiyor;
 }
 
+/// Modelin düşünmesi (Claude thinking, Codex reasoning özeti).
+class DusunceOge extends Oge {
+  DusunceOge(this.anahtar, this.metin, {this.akiyor = false});
+  final String anahtar;
+  String metin;
+  bool akiyor;
+  final baslangic = DateTime.now();
+  DateTime? bitis;
+}
+
 class AracOge extends Oge {
   AracOge(this.aid, this.ad, this.ozet, this.girdi);
   final String aid;
@@ -75,6 +85,10 @@ class Sohbet extends ChangeNotifier {
 
   final ogeler = <Oge>[];
   final _metinler = <String, MetinOge>{};
+  final _dusunceler = <String, DusunceOge>{};
+
+  /// Canlı izlenen turun başladığı an (geçmişten yüklenince bilinmez).
+  DateTime? turBasi;
   final _araclar = <String, AracOge>{};
   final _onaylar = <String, OnayOge>{};
   bool yukleniyor = false;
@@ -107,6 +121,7 @@ class Sohbet extends ChangeNotifier {
       _ozet = (r['oturum'] as Map).cast<String, dynamic>();
       ogeler.clear();
       _metinler.clear();
+      _dusunceler.clear();
       _araclar.clear();
       _onaylar.clear();
       final bekleyen = ((r['bekleyen'] as List?) ?? const []).toSet();
@@ -133,6 +148,7 @@ class Sohbet extends ChangeNotifier {
           ),
         );
       case 'parca':
+        _dusunmeyiBitir();
         final anahtar = e['anahtar'] as String? ?? '';
         final var_ = _metinler[anahtar];
         if (var_ != null) {
@@ -158,7 +174,41 @@ class Sohbet extends ChangeNotifier {
           _metinler[anahtar] = o;
           ogeler.add(o);
         }
+      case 'dusunce_parca':
+        final anahtar = e['anahtar'] as String? ?? '';
+        final var_ = _dusunceler[anahtar];
+        if (var_ != null) {
+          var_.metin += e['metin'] as String? ?? '';
+        } else {
+          final o = DusunceOge(
+            anahtar,
+            e['metin'] as String? ?? '',
+            akiyor: true,
+          );
+          _dusunceler[anahtar] = o;
+          ogeler.add(o);
+        }
+      case 'dusunce':
+        final anahtar = e['anahtar'] as String? ?? '';
+        final metin = (e['metin'] as String? ?? '').trim();
+        final var_ = _dusunceler[anahtar];
+        if (var_ != null) {
+          var_
+            ..metin = metin.isNotEmpty ? metin : var_.metin
+            ..akiyor = false
+            ..bitis ??= DateTime.now();
+          if (var_.metin.trim().isEmpty) {
+            ogeler.remove(var_);
+            _dusunceler.remove(anahtar);
+          }
+        } else if (metin.isNotEmpty) {
+          final o = DusunceOge(anahtar, metin);
+          _dusunceler[anahtar] = o;
+          ogeler.add(o);
+        }
       case 'arac':
+        // araç başladıysa önceki düşünme bitmiştir
+        _dusunmeyiBitir();
         final o = AracOge(
           e['aid'] as String? ?? '',
           e['ad'] as String? ?? '?',
@@ -202,12 +252,19 @@ class Sohbet extends ChangeNotifier {
         for (final a in _araclar.values) {
           a.bitti = true;
         }
+        _dusunmeyiBitir();
+        _dusunceler.removeWhere((_, d) {
+          final bos = d.metin.trim().isEmpty;
+          if (bos) ogeler.remove(d);
+          return bos;
+        });
         ogeler.add(
           BittiOge(e['hata'] as String?, (e['maliyet'] as num?)?.toDouble()),
         );
       case 'uyari':
         ogeler.add(UyariOge(e['metin'] as String? ?? ''));
       case 'durum':
+        if (e['durum'] == 'calisiyor' && !calisiyor) turBasi = DateTime.now();
         _ozet = {..._ozet, 'durum': e['durum']};
       case 'oturum':
         _ozet = (e['ozet'] as Map).cast<String, dynamic>();
@@ -217,7 +274,40 @@ class Sohbet extends ChangeNotifier {
     if (bildir) notifyListeners();
   }
 
+  void _dusunmeyiBitir() {
+    for (final d in _dusunceler.values) {
+      if (d.akiyor) {
+        d
+          ..akiyor = false
+          ..bitis = DateTime.now();
+      }
+    }
+  }
+
+  /// Ajanın şu an ne yaptığı, kısa bir cümleyle; çalışmıyorsa null.
+  ({String metin, String? ayrinti, bool onay})? get etkinlik {
+    if (!calisiyor) return null;
+    for (final o in ogeler.reversed) {
+      switch (o) {
+        case OnayOge(kapandi: false, :final ozet):
+          return (metin: 'Onayın bekleniyor', ayrinti: ozet, onay: true);
+        case AracOge(bitti: false, :final ad, :final ozet):
+          return (metin: aracEylemi(ad), ayrinti: ozet, onay: false);
+        case DusunceOge(akiyor: true):
+          return (metin: 'Düşünüyor', ayrinti: null, onay: false);
+        case MetinOge(akiyor: true):
+          return (metin: 'Yazıyor', ayrinti: null, onay: false);
+        case KullaniciOge():
+          return (metin: 'Başlıyor', ayrinti: null, onay: false);
+        default:
+          return (metin: 'Sıradaki adımı düşünüyor', ayrinti: null, onay: false);
+      }
+    }
+    return (metin: 'Çalışıyor', ayrinti: null, onay: false);
+  }
+
   Future<void> gonder(String metin, {List<String> ekler = const []}) async {
+    turBasi = DateTime.now();
     _ozet = {..._ozet, 'durum': 'calisiyor'};
     notifyListeners();
     await istemci.iste('gonder', {
@@ -262,3 +352,21 @@ class Sohbet extends ChangeNotifier {
     super.dispose();
   }
 }
+
+/// Araç adına göre "ne yapıyor" cümlesi.
+String aracEylemi(String ad) => switch (ad) {
+  'Bash' || 'Komut' => 'Komut çalıştırıyor',
+  'Read' => 'Dosya okuyor',
+  'Write' => 'Dosya yazıyor',
+  'Edit' || 'MultiEdit' || 'Düzenle' || 'Dosya değişikliği' =>
+    'Dosya düzenliyor',
+  'NotebookEdit' => 'Defteri düzenliyor',
+  'Glob' => 'Dosya arıyor',
+  'Grep' => 'Kodda arıyor',
+  'WebSearch' || 'webSearch' => 'Web\'de arıyor',
+  'WebFetch' => 'Sayfa okuyor',
+  'Task' || 'Agent' => 'Alt görev yürütüyor',
+  'TodoWrite' => 'Planı güncelliyor',
+  'mcpToolCall' || 'dynamicToolCall' => 'Araç kullanıyor',
+  _ => '$ad kullanıyor',
+};

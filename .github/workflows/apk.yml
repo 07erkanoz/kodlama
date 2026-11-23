@@ -1,0 +1,77 @@
+name: APK
+
+# main'e her gönderimde (uygulama ya da köprü değişince) arm64 APK derler ve
+# indirilebilir bir GitHub sürümü (release) olarak yayımlar.
+on:
+  push:
+    branches: [main]
+    paths: ["uygulama/**", "kopru/**", ".github/workflows/apk.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: uygulama
+    env:
+      # İsteğe bağlı: release imzası. Yoksa debug anahtarıyla imzalanır.
+      IMZA_JKS: ${{ secrets.ATOLYE_JKS_BASE64 }}
+      IMZA_SIFRE: ${{ secrets.ATOLYE_JKS_SIFRE }}
+      IMZA_ALIAS: ${{ secrets.ATOLYE_JKS_ALIAS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter --version
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - run: flutter test
+
+      - name: Release imzasını hazırla
+        if: env.IMZA_JKS != ''
+        run: |
+          echo "$IMZA_JKS" | base64 -d > android/app/atolye-release.jks
+          cat > android/key.properties <<EOP
+          storeFile=atolye-release.jks
+          storePassword=$IMZA_SIFRE
+          keyAlias=${IMZA_ALIAS:-atolye}
+          keyPassword=$IMZA_SIFRE
+          EOP
+
+      - name: APK derle (arm64)
+        run: |
+          flutter build apk --release --target-platform android-arm64 \
+            --build-number $((100 + ${{ github.run_number }}))
+          cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/atolye-arm64.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atolye-arm64
+          path: ${{ runner.temp }}/atolye-arm64.apk
+
+      - name: Sürüm olarak yayımla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          imza=$([ -n "$IMZA_JKS" ] && echo "release" || echo "debug")
+          gh release create "apk-${{ github.run_number }}" "$RUNNER_TEMP/atolye-arm64.apk" \
+            --target "${{ github.sha }}" --prerelease \
+            --title "Atölye APK #${{ github.run_number }}" \
+            --notes "arm64 (yeni nesil telefonlar) · imza: $imza · ${{ github.sha }}"

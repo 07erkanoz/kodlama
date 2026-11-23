@@ -47,6 +47,20 @@ class KopruIstemci {
     queryParameters: {'yol': yol, 't': token},
   );
 
+  /// Dosyayı yolu adreste olacak biçimde verir (köprü 0.7+): HTML
+  /// sayfaları göreli css/js/resimleriyle tarayıcıda düzgün açılır.
+  Uri sayfaAdresi(String yol) => Uri(
+    scheme: 'http',
+    host: '127.0.0.1',
+    port: port,
+    pathSegments: [
+      's',
+      token,
+      ...yol.split('/').where((p) => p.isNotEmpty),
+      if (yol.endsWith('/')) '',
+    ],
+  );
+
   Uri get saglikAdresi => Uri.parse('http://127.0.0.1:$port/saglik');
 
   Future<void> baglan() async {

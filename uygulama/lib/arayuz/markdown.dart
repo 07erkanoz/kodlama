@@ -355,7 +355,7 @@ class _MarkdownState extends State<Markdown> {
   );
 
   InlineSpan _span(md.Node node, TextStyle style) {
-    if (node is md.Text) return _linked(_unescape(node.text), style);
+    if (node is md.Text) return _paths(_unescape(node.text), style);
     if (node is! md.Element) return const TextSpan();
     final e = node;
     switch (e.tag) {
@@ -380,6 +380,26 @@ class _MarkdownState extends State<Markdown> {
         return TextSpan(text: code, style: mono);
       case 'br':
         return const TextSpan(text: '\n');
+      case 'img':
+        final src = e.attributes['src'];
+        final alt = e.attributes['alt'];
+        if (src == null || src.isEmpty) return const TextSpan();
+        final label = alt?.isNotEmpty == true ? alt! : src.split('/').last;
+        final color = Theme.of(context).colorScheme.primary;
+        return TextSpan(
+          children: [
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Icon(Icons.image_outlined, size: size + 1, color: color),
+              ),
+            ),
+            widget.onLink != null
+                ? _tappable(label, src, style)
+                : TextSpan(text: label, style: style),
+          ],
+        );
       case 'a':
         final href = e.attributes['href'];
         if (widget.onLink != null && href != null) {
@@ -392,6 +412,31 @@ class _MarkdownState extends State<Markdown> {
       default:
         return _inline(e.children, style);
     }
+  }
+
+  /// Düz metinde geçen dosya yolları ve adresler: `/…/index.html`,
+  /// `~/proje/a.png`, `docs/mock.html`, `http://127.0.0.1:8790`.
+  static final _inlinePath = RegExp(
+    r'(?:https?://[^\s<>()\[\]]+[^\s<>()\[\].,;:!?\x27"])'
+    r'|(?:(?:~|\.{1,2})?/[\w.~-]+(?:/[\w.~-]+)*\.[A-Za-z0-9]{1,6})'
+    r'|(?:\b[\w-]+(?:/[\w.-]+)*\.(?:html?|png|jpe?g|gif|webp|svg|pdf|md|mp4|mp3|docx|xlsx|pptx|csv)\b)',
+  );
+
+  /// [text] içindeki yolları dokunulabilir yapar; geri kalanı [_linked]'e.
+  InlineSpan _paths(String text, TextStyle style) {
+    if (widget.onLink == null || text.length < 4) return _linked(text, style);
+    final spans = <InlineSpan>[];
+    var done = 0;
+    for (final m in _inlinePath.allMatches(text)) {
+      if (m.start > done) {
+        spans.add(_linked(text.substring(done, m.start), style));
+      }
+      spans.add(_tappable(m[0]!, m[0]!, style));
+      done = m.end;
+    }
+    if (done == 0) return _linked(text, style);
+    if (done < text.length) spans.add(_linked(text.substring(done), style));
+    return TextSpan(children: spans);
   }
 
   static final _pathLike = RegExp(r'^[~./\w-][\w ./~-]*\.[A-Za-z0-9]{1,6}$');
