@@ -54,6 +54,22 @@ açılınca geçmiş buradan gelir. Dosyalar aynı porttan `GET /dosya?yol=…&t
 Termux'a dışarıdan komut gönderilebilmesi için `allow-external-apps = true` gerekir; bunu kurulum
 scripti yapar. Bu yüzden ilk adımdaki tek yapıştırma kaçınılmazdır.
 
+## Neler yapılabiliyor
+
+- **Sohbet:** Markdown yanıtlar, araç adımları tek "etkinlik" satırında, düzenlemeler ve onaylar
+  kırmızı/yeşil diff olarak, çalışırken araya mesaj yazma, durdurma, dosya ekleme.
+- **Başlangıç ekranı:** proje, ajan, çalışma biçimi ve konum (bu cihaz ya da SSH sunucusu) seçip
+  tek adımda başlatma; hazır görevler; proje kartları; GitHub'dan klonlama.
+- **Dosyalar:** bu oturumda değişenler, klasör gezgini; önizleme: resim, SVG, PDF, ses, video,
+  Word/PowerPoint (Markdown'a çevrilerek), Excel/CSV (tablo), HTML, Markdown, kod. Her dosya
+  başka bir uygulamada açılabilir ya da paylaşılabilir.
+- **Git:** dal, ileri/geri, değişen dosyalar ve diff'leri, commit (ya da "ajana yaptır"),
+  push/pull, GitHub'da PR (gh).
+- **Ayarlar:** GitHub girişi (gh, Termux'ta tarayıcıyla), SSH anahtarı oluşturma/kopyalama ve
+  GitHub'a ekleme, SSH sunucuları (ekle, dene, sil), tema.
+- **Uzak oturum:** ajan SSH ile kayıtlı bir sunucuda çalışır (`ssh … bash -lc 'cd … && exec claude …'`);
+  sohbet, onaylar ve diff'ler aynı arayüzde. Uzak dosya önizleme ve Git paneli henüz yok.
+
 ## Ekran düzenleri
 
 | Genişlik | Cihaz | Düzen |

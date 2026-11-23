@@ -27,6 +27,8 @@ import mimetypes
 import os
 import re
 import secrets
+import shlex
+import socket
 import shutil
 import signal
 import sys
@@ -303,6 +305,116 @@ def belge_oku(yol: Path) -> dict:
     raise ValueError(f"bu belge türü çevrilemiyor: {u}")
 
 
+# ---------------------------------------------------------------- komutlar
+#
+# Git, GitHub (gh) ve SSH işlemleri. Hepsi kullanıcının kendi araçlarıyla ve
+# kendi kimliğiyle çalışır; köprü yalnız çağırır ve sonucu döndürür.
+
+KOMUT_ORTAMI = {"GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1", "NO_COLOR": "1", "GIT_PAGER": "cat"}
+
+
+async def calistir(args: list[str], cwd: Path | str | None = None, sure: float = 120,
+                   girdi: bytes | None = None) -> tuple[int, str, str]:
+    try:
+        p = await asyncio.create_subprocess_exec(
+            *args, cwd=str(cwd) if cwd else None, env={**os.environ, **KOMUT_ORTAMI},
+            stdin=asyncio.subprocess.PIPE if girdi is not None else asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    except FileNotFoundError:
+        return 127, "", f"{args[0]} kurulu değil"
+    try:
+        o, e = await asyncio.wait_for(p.communicate(girdi), sure)
+    except asyncio.TimeoutError:
+        p.kill()
+        return 124, "", f"zaman aşımı ({int(sure)} sn)"
+    return p.returncode, o.decode(errors="replace"), e.decode(errors="replace")
+
+
+def _sonuc(kod, out, err, ok_mesaj=""):
+    if kod != 0:
+        raise RuntimeError((err or out).strip()[-2000:] or f"çıkış kodu {kod}")
+    return {"cikti": (out + err).strip()[-4000:] or ok_mesaj}
+
+
+async def git_durum(cwd: Path) -> dict:
+    kod, _, _ = await calistir(["git", "rev-parse", "--is-inside-work-tree"], cwd, 15)
+    if kod != 0:
+        return {"repo": False}
+    _, ham, _ = await calistir(["git", "status", "--porcelain=v1", "-b", "-z", "--untracked-files=all"], cwd, 30)
+    girdiler = ham.split("\0")
+    dal, ileri, geri, takip = "", 0, 0, None
+    dosyalar = []
+    i = 0
+    while i < len(girdiler):
+        g = girdiler[i]
+        i += 1
+        if not g:
+            continue
+        if g.startswith("## "):
+            bas = g[3:]
+            m = re.match(r"(?:No commits yet on |Initial commit on )?([^.\s]+)(?:\.\.\.(\S+))?(?: \[(.*)\])?", bas)
+            if m:
+                dal, takip = m.group(1), m.group(2)
+                for parca in (m.group(3) or "").split(","):
+                    parca = parca.strip()
+                    if parca.startswith("ahead"):
+                        ileri = int(parca.split()[1])
+                    elif parca.startswith("behind"):
+                        geri = int(parca.split()[1])
+            continue
+        x, y, yol = g[0], g[1], g[3:]
+        if x in "RC":
+            i += 1  # yeniden adlandırmada eski yol ayrı girdidir
+        tur = "yeni" if x == "?" else "silindi" if "D" in (x, y) else "eklendi" if x == "A" else \
+            "ad" if x == "R" else "degisti"
+        dosyalar.append({"yol": yol, "tam": str(cwd / yol), "tur": tur, "hazir": x not in " ?"})
+    _, uzak, _ = await calistir(["git", "remote", "get-url", "origin"], cwd, 10)
+    _, gunluk, _ = await calistir(["git", "log", "-8", "--pretty=%h%x09%s%x09%cr%x09%an"], cwd, 15)
+    commitler = []
+    for satir in gunluk.splitlines():
+        p = satir.split("\t")
+        if len(p) == 4:
+            commitler.append({"kisa": p[0], "mesaj": p[1], "zaman": p[2], "yazar": p[3]})
+    return {"repo": True, "dal": dal, "takip": takip, "ileri": ileri, "geri": geri,
+            "uzak": uzak.strip() or None, "dosyalar": dosyalar, "commitler": commitler}
+
+
+async def git_fark(cwd: Path, yol: str) -> dict:
+    kod, out, _ = await calistir(["git", "diff", "HEAD", "--", yol], cwd, 30)
+    if kod != 0 or not out.strip():
+        _, out, _ = await calistir(["git", "diff", "--cached", "--", yol], cwd, 30)
+    if not out.strip():
+        # izlenmeyen dosya: tamamı eklenmiş gibi
+        _, out, _ = await calistir(["git", "diff", "--no-index", "--", "/dev/null", yol], cwd, 30)
+    return {"fark": out[:400_000]}
+
+
+async def gh_durum() -> dict:
+    if not shutil.which("gh"):
+        return {"kurulu": False}
+    kod, out, _ = await calistir(["gh", "api", "user", "--jq", ".login"], sure=20)
+    return {"kurulu": True, "giris": kod == 0, "kullanici": out.strip() if kod == 0 else None}
+
+
+SSH_ANAHTAR = Path.home() / ".ssh" / "id_ed25519"
+
+
+def ssh_hedef(s: dict) -> list[str]:
+    return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30",
+            "-p", str(s.get("port") or 22), f"{s['kullanici']}@{s['host']}" if s.get("kullanici") else s["host"]]
+
+
+def uzak_komut(s: dict, klasor: str, args: list[str]) -> list[str]:
+    """Uzak makinede giriş kabuğuyla (PATH yüklensin) klasöre geçip komutu çalıştır."""
+    if klasor == "~" or klasor.startswith("~/"):  # tırnak içinde ~ açılmaz
+        hedef = '"$HOME"' + (shlex.quote(klasor[1:]) if len(klasor) > 1 else "")
+    else:
+        hedef = shlex.quote(klasor)
+    ic = f"cd {hedef} && exec {shlex.join(args)}"
+    return ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", ic])]
+
+
 # ---------------------------------------------------------------- oturum
 
 
@@ -318,6 +430,8 @@ class Oturum:
         self.sid: str | None = veri.get("sid")
         self.mod: str = veri.get("mod", "sor")
         self.model: str | None = veri.get("model")
+        self.sunucu: str | None = veri.get("sunucu")  # uzak sunucu adı (yoksa bu cihaz)
+        self.uzak_klasor: str | None = veri.get("uzak_klasor")
         self.olusturma: float = veri.get("olusturma", simdi())
         self.guncelleme: float = veri.get("guncelleme", self.olusturma)
         self.durum = "bos"  # bos | calisiyor
@@ -333,12 +447,13 @@ class Oturum:
             "id": self.id, "ajan": self.ajan, "cwd": str(self.cwd), "baslik": self.baslik,
             "sid": self.sid, "mod": self.mod, "model": self.model,
             "olusturma": self.olusturma, "guncelleme": self.guncelleme,
+            "sunucu": self.sunucu, "uzak_klasor": self.uzak_klasor,
         }
 
     def ozet(self) -> dict:
         d = self.veri()
         d["durum"] = self.durum
-        d["goreli"] = goreli(str(self.cwd), KOK.resolve())
+        d["goreli"] = f"{self.sunucu}:{self.uzak_klasor}" if self.sunucu else goreli(str(self.cwd), KOK.resolve())
         return d
 
     # --- olay yayını
@@ -358,6 +473,9 @@ class Oturum:
     # --- dosya değişikliği
 
     def tur_basi(self):
+        if self.sunucu:  # uzak klasör buradan taranamaz
+            self.goruntu = None
+            return
         self.goruntu = tara(self.cwd)
         self.bildirilen = set()
 
@@ -387,9 +505,18 @@ class Oturum:
 
     # --- süreç
 
+    def komut(self, ad: str) -> str:
+        """Ajan CLI'ının yolu: bu cihazda tam yol, uzakta yalın ad."""
+        return ad if self.sunucu else (shutil.which(ad) or ad)
+
     async def _baslat(self, args: list[str]):
         env = dict(os.environ)
         env.setdefault("TERM", "dumb")
+        if self.sunucu:
+            s = self.k.sunucular().get(self.sunucu)
+            if not s:
+                raise ValueError(f"sunucu bulunamadı: {self.sunucu}")
+            args = uzak_komut(s, self.uzak_klasor or "~", args)
         self.surec = await asyncio.create_subprocess_exec(
             *args, cwd=str(self.cwd), env=env,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
@@ -475,7 +602,7 @@ class ClaudeOturum(Oturum):
         self._yazacak: dict[str, str] = {}  # araç kimliği → yazacağı dosya (sonuç gelince bildirilir)
 
     def _args(self):
-        a = [shutil.which("claude") or "claude", "-p",
+        a = [self.komut("claude"), "-p",
              "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
              "--include-partial-messages", "--permission-prompt-tool", "stdio",
              "--permission-mode", CLAUDE_MOD.get(self.mod, "default")]
@@ -634,11 +761,11 @@ class CodexOturum(Oturum):
     async def _hazirla(self):
         if self.surec:
             return
-        await self._baslat([shutil.which("codex") or "codex", "app-server"])
+        await self._baslat([self.komut("codex"), "app-server"])
         await self._rpc("initialize", {"clientInfo": {"name": "atolye", "version": SURUM}})
         await self._rpc("initialized", bildirim=True)
         onay, sandbox = self._politika()
-        prm = {"cwd": str(self.cwd), "approvalPolicy": onay, "sandbox": sandbox}
+        prm = {"cwd": self.uzak_klasor if self.sunucu else str(self.cwd), "approvalPolicy": onay, "sandbox": sandbox}
         if self.model:
             prm["model"] = self.model
         sonuc = None
@@ -672,7 +799,8 @@ class CodexOturum(Oturum):
         pol = {"type": {"read-only": "readOnly", "danger-full-access": "dangerFullAccess"}.get(sandbox, "workspaceWrite")}
         if pol["type"] == "workspaceWrite":
             pol["networkAccess"] = True
-        prm = {"threadId": self.sid, "input": girdi, "cwd": str(self.cwd), "approvalPolicy": onay, "sandboxPolicy": pol}
+        prm = {"threadId": self.sid, "input": girdi, "cwd": self.uzak_klasor if self.sunucu else str(self.cwd),
+               "approvalPolicy": onay, "sandboxPolicy": pol}
         try:
             sonuc = await self._rpc("turn/start", prm)
             self.tur = sonuc["turn"]["id"]
@@ -874,6 +1002,15 @@ class Kopru:
             out.append({"ad": ad, "kurulu": bool(yol), "surum": surum})
         return out
 
+    def sunucular(self) -> dict[str, dict]:
+        try:
+            return {s["ad"]: s for s in json.loads((EV / "sunucular.json").read_text())}
+        except (OSError, ValueError):
+            return {}
+
+    def sunuculari_yaz(self, sunucular: dict[str, dict]):
+        (EV / "sunucular.json").write_text(json.dumps(list(sunucular.values()), ensure_ascii=False, indent=1))
+
     def projeler(self):
         out = []
         try:
@@ -930,12 +1067,22 @@ class Kopru:
             ajan = m.get("ajan")
             if ajan not in SURUCULER:
                 raise ValueError("bilinmeyen ajan")
-            cwd = guvenli_yol(m.get("cwd") or KOK)
-            if not cwd.is_dir():
-                raise ValueError("klasör yok")
+            sunucu = m.get("sunucu") or None
+            if sunucu:
+                if sunucu not in self.sunucular():
+                    raise ValueError("sunucu bulunamadı")
+                uzak = (m.get("uzak_klasor") or "~").strip()
+                cwd = KOK.resolve()
+                baslik = m.get("baslik") or f"{sunucu}:{uzak}"
+            else:
+                uzak = None
+                cwd = guvenli_yol(m.get("cwd") or KOK)
+                if not cwd.is_dir():
+                    raise ValueError("klasör yok")
+                baslik = m.get("baslik")
             o = SURUCULER[ajan](self, {"id": uuid.uuid4().hex[:12], "ajan": ajan, "cwd": str(cwd),
                                         "mod": m.get("mod", "sor"), "model": m.get("model") or None,
-                                        "baslik": m.get("baslik")})
+                                        "baslik": baslik, "sunucu": sunucu, "uzak_klasor": uzak})
             self.oturumlar[o.id] = o
             self.oturumlari_kaydet()
             return {"oturum": o.ozet()}
@@ -985,6 +1132,105 @@ class Kopru:
             return self.oku(m["yol"])
         if op == "belge":
             return belge_oku(guvenli_yol(m["yol"]))
+
+        # --- git
+        if op.startswith("git_"):
+            cwd = guvenli_yol(m.get("cwd") or KOK)
+            if op == "git_durum":
+                return await git_durum(cwd)
+            if op == "git_fark":
+                return await git_fark(cwd, m["yol"])
+            if op == "git_init":
+                return _sonuc(*await calistir(["git", "init", "-b", "main"], cwd))
+            if op == "git_commit":
+                mesaj = (m.get("mesaj") or "").strip()
+                if not mesaj:
+                    raise ValueError("commit mesajı boş")
+                yollar = m.get("yollar")
+                kod, out, err = await calistir(["git", "add", "-A", "--", *(yollar or ["."])], cwd)
+                if kod != 0:
+                    raise RuntimeError(err.strip())
+                return _sonuc(*await calistir(["git", "commit", "-m", mesaj], cwd))
+            if op == "git_push":
+                kod, out, err = await calistir(["git", "push"], cwd, 300)
+                if kod != 0 and "no upstream" in (err + out):
+                    kod, out, err = await calistir(["git", "push", "-u", "origin", "HEAD"], cwd, 300)
+                return _sonuc(kod, out, err, "gönderildi")
+            if op == "git_pull":
+                return _sonuc(*await calistir(["git", "pull", "--ff-only"], cwd, 300), "güncel")
+            if op == "git_klonla":
+                url = (m.get("url") or "").strip()
+                if not re.match(r"^(https://|git@|ssh://)\S+$", url):
+                    raise ValueError("geçersiz depo adresi")
+                ad = re.sub(r"[^\w.\-]", "", m.get("ad") or url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git"))
+                hedef = guvenli_yol(KOK / ad)
+                if hedef.exists():
+                    raise ValueError(f"{ad} klasörü zaten var")
+                _sonuc(*await calistir(["git", "clone", url, str(hedef)], KOK, 900))
+                return {"yol": str(hedef)}
+            raise ValueError(f"bilinmeyen işlem: {op}")
+
+        # --- GitHub
+        if op == "gh_durum":
+            return await gh_durum()
+        if op == "gh_repolar":
+            kod, out, err = await calistir(["gh", "repo", "list", "--limit", "100", "--json",
+                                            "nameWithOwner,description,url,sshUrl,updatedAt,isPrivate"], sure=60)
+            if kod != 0:
+                raise RuntimeError(err.strip() or "GitHub depoları alınamadı")
+            return {"repolar": json.loads(out or "[]")}
+        if op == "gh_pr":
+            cwd = guvenli_yol(m["cwd"])
+            args = ["gh", "pr", "create", "--title", m.get("baslik") or "Atölye", "--body", m.get("govde") or ""]
+            kod, out, err = await calistir(args, cwd, 120)
+            if kod != 0:
+                raise RuntimeError(err.strip() or out.strip())
+            return {"url": out.strip().splitlines()[-1] if out.strip() else ""}
+        if op == "gh_anahtar_ekle":
+            if not SSH_ANAHTAR.with_suffix(".pub").exists():
+                raise ValueError("önce SSH anahtarı oluştur")
+            return _sonuc(*await calistir(["gh", "ssh-key", "add", str(SSH_ANAHTAR.with_suffix(".pub")),
+                                            "--title", f"atolye-{socket.gethostname()}"], sure=60), "eklendi")
+
+        # --- SSH
+        if op == "ssh_durum":
+            pub = SSH_ANAHTAR.with_suffix(".pub")
+            return {"anahtar": pub.read_text().strip() if pub.exists() else None,
+                    "ssh": bool(shutil.which("ssh")), "sunucular": list(self.sunucular().values())}
+        if op == "ssh_anahtar_olustur":
+            if SSH_ANAHTAR.exists():
+                raise ValueError("anahtar zaten var")
+            SSH_ANAHTAR.parent.mkdir(mode=0o700, exist_ok=True)
+            _sonuc(*await calistir(["ssh-keygen", "-t", "ed25519", "-N", "", "-C",
+                                    f"atolye@{socket.gethostname()}", "-f", str(SSH_ANAHTAR)], sure=30))
+            return {"anahtar": SSH_ANAHTAR.with_suffix(".pub").read_text().strip()}
+        if op == "sunucu_kaydet":
+            ad = re.sub(r"[^\w.\-]", "", m.get("ad") or "")
+            host = (m.get("host") or "").strip()
+            if not ad or not re.match(r"^[\w.\-:\[\]]+$", host):
+                raise ValueError("ad ve sunucu adresi gerekli")
+            kullanici = (m.get("kullanici") or "").strip()
+            if kullanici and not re.match(r"^[\w.\-]+$", kullanici):
+                raise ValueError("geçersiz kullanıcı adı")
+            hepsi = self.sunucular()
+            hepsi[ad] = {"ad": ad, "host": host, "kullanici": kullanici or None,
+                         "port": int(m.get("port") or 22), "klasor": (m.get("klasor") or "~").strip()}
+            self.sunuculari_yaz(hepsi)
+            return {"sunucu": hepsi[ad]}
+        if op == "sunucu_sil":
+            hepsi = self.sunucular()
+            hepsi.pop(m.get("ad"), None)
+            self.sunuculari_yaz(hepsi)
+            return {}
+        if op == "sunucu_dene":
+            s = self.sunucular().get(m.get("ad"))
+            if not s:
+                raise ValueError("sunucu bulunamadı")
+            kod, out, err = await calistir(ssh_hedef(s) + ["--", "bash -lc 'echo ATOLYE_OK; command -v claude codex git'"], sure=25)
+            if kod != 0 or "ATOLYE_OK" not in out:
+                raise RuntimeError(err.strip() or "bağlanılamadı")
+            araclar = [Path(x).name for x in out.split() if x.startswith("/")]
+            return {"tamam": True, "araclar": araclar}
         if op == "yukle":
             o = self._oturum(m)
             hedef_klasor = o.cwd / ".atolye" / "ekler"

@@ -192,7 +192,15 @@ List<DiffSatiri> satirFarki(String eski, String yeni) {
 /// Birleşik (unified) diff metnini satırlara ayırır.
 List<DiffSatiri> birlesikFark(String diff) => [
   for (final s in diff.split('\n'))
-    if (s.startsWith('+++') || s.startsWith('---'))
+    if (s.startsWith('+++') ||
+        s.startsWith('---') ||
+        s.startsWith('diff --git') ||
+        s.startsWith('index ') ||
+        s.startsWith('new file mode') ||
+        s.startsWith('deleted file mode') ||
+        s.startsWith('similarity index') ||
+        s.startsWith('rename ') ||
+        s.startsWith('\\ No newline'))
       DiffSatiri(SatirTuru.baslik, s)
     else if (s.startsWith('@@'))
       DiffSatiri(SatirTuru.baslik, s)

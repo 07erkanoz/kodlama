@@ -4,6 +4,7 @@ import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
+import 'klonla_penceresi.dart';
 
 /// Oturum seçili değilken açılan ekran: proje ve ajan seçilir, ilk mesaj
 /// yazılır, gönderince oturum açılır ve iş başlar. Altında projeler ve
@@ -21,6 +22,13 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
   String? _proje;
   String? _ajan;
   String _mod = 'sor';
+
+  /// Boşsa bu cihaz; değilse kayıtlı SSH sunucusunun adı.
+  String? _sunucu;
+  String? _uzakKlasor;
+
+  Map<String, dynamic>? get _seciliSunucu =>
+      c.sunucular.where((s) => s['ad'] == _sunucu).firstOrNull;
   bool _gonderiliyor = false;
 
   Calisma get c => widget.calisma;
@@ -70,10 +78,21 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
   Future<void> _gonder() async {
     final metin = _yazi.text.trim();
     final proje = _seciliProje, ajan = _seciliAjan;
-    if (metin.isEmpty || proje == null || ajan == null || _gonderiliyor) return;
+    final sunucu = _seciliSunucu;
+    if (metin.isEmpty || ajan == null || _gonderiliyor) return;
+    if (sunucu == null && proje == null) return;
     setState(() => _gonderiliyor = true);
     try {
-      await c.hizliBaslat(ajan: ajan, cwd: proje, metin: metin, mod: _mod);
+      await c.hizliBaslat(
+        ajan: ajan,
+        cwd: proje ?? '',
+        metin: metin,
+        mod: _mod,
+        sunucu: sunucu?['ad'] as String?,
+        uzakKlasor: sunucu == null
+            ? null
+            : (_uzakKlasor ?? sunucu['klasor'] as String? ?? '~'),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -81,6 +100,44 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
       }
     } finally {
       if (mounted) setState(() => _gonderiliyor = false);
+    }
+  }
+
+  Future<void> _klonla() async {
+    final yol = await klonlaPenceresi(context, c);
+    if (yol != null && mounted) setState(() => _proje = yol);
+  }
+
+  Future<void> _uzakKlasorSec() async {
+    final s = _seciliSunucu;
+    if (s == null) return;
+    final d = TextEditingController(
+      text: _uzakKlasor ?? s['klasor'] as String? ?? '~',
+    );
+    final v = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${s['ad']} üzerinde klasör'),
+        content: TextField(
+          controller: d,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '/home/kullanici/proje'),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, d.text),
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+    if (v != null && v.trim().isNotEmpty) {
+      setState(() => _uzakKlasor = v.trim());
     }
   }
 
@@ -131,6 +188,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
         final proje = _seciliProje;
         final ajan = _seciliAjan;
         final projeAdi = proje?.split('/').last ?? 'Proje seç';
+        final sunucu = _seciliSunucu;
         return LayoutBuilder(
           builder: (context, kisit) {
             final dar = kisit.maxWidth < 600;
@@ -176,32 +234,76 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                         otomatikOdak: !dar,
                         gonderilebilir:
                             bagli &&
-                            proje != null &&
+                            (proje != null || sunucu != null) &&
                             ajan != null &&
                             !_gonderiliyor,
                         ipucu: ajan == null
                             ? 'Kurulu ajan bulunamadı'
                             : '${ajanAdi(ajan)} için bir görev yaz…',
                         cipler: [
-                          SecimCipi<String>(
-                            simge: const Icon(Icons.folder_outlined),
-                            etiket: projeAdi,
-                            ipucu: 'Proje',
-                            secili: proje,
-                            secenekler: [
-                              for (final p in c.projeler)
-                                (
-                                  p['yol'] as String,
-                                  p['ad'] as String,
-                                  goreliZaman(p['degisme'] as num?),
-                                  true,
-                                ),
-                              ('+', '+ Yeni proje…', null, true),
-                            ],
-                            secildi: (v) => v == '+'
-                                ? _yeniProje()
-                                : setState(() => _proje = v),
-                          ),
+                          if (c.sunucular.isNotEmpty)
+                            SecimCipi<String>(
+                              simge: Icon(
+                                sunucu == null
+                                    ? Icons.smartphone
+                                    : Icons.dns_outlined,
+                              ),
+                              etiket: sunucu == null
+                                  ? 'Bu cihaz'
+                                  : sunucu['ad'] as String,
+                              ipucu: 'Nerede çalışsın',
+                              secili: _sunucu ?? '',
+                              secenekler: [
+                                ('', 'Bu cihaz', 'Termux içinde', true),
+                                for (final s in c.sunucular)
+                                  (
+                                    s['ad'] as String,
+                                    s['ad'] as String,
+                                    'SSH · ${s['host']}',
+                                    true,
+                                  ),
+                              ],
+                              secildi: (v) => setState(() {
+                                _sunucu = v.isEmpty ? null : v;
+                                _uzakKlasor = null;
+                              }),
+                            ),
+                          if (sunucu != null)
+                            ActionChip(
+                              avatar: const Icon(
+                                Icons.folder_outlined,
+                                size: 15,
+                              ),
+                              label: Text(
+                                _uzakKlasor ??
+                                    sunucu['klasor'] as String? ??
+                                    '~',
+                              ),
+                              onPressed: _uzakKlasorSec,
+                            )
+                          else
+                            SecimCipi<String>(
+                              simge: const Icon(Icons.folder_outlined),
+                              etiket: projeAdi,
+                              ipucu: 'Proje',
+                              secili: proje,
+                              secenekler: [
+                                for (final p in c.projeler)
+                                  (
+                                    p['yol'] as String,
+                                    p['ad'] as String,
+                                    goreliZaman(p['degisme'] as num?),
+                                    true,
+                                  ),
+                                ('+', '+ Yeni proje…', null, true),
+                                ('klon', '⇣ GitHub\'dan klonla…', null, true),
+                              ],
+                              secildi: (v) => v == '+'
+                                  ? _yeniProje()
+                                  : v == 'klon'
+                                  ? _klonla()
+                                  : setState(() => _proje = v),
+                            ),
                           SecimCipi<String>(
                             simge: ajan == null
                                 ? const Icon(Icons.smart_toy_outlined)
@@ -260,10 +362,23 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                         const SizedBox(height: 36),
                         _BolumBasligi(
                           'Projeler',
-                          sag: TextButton.icon(
-                            onPressed: bagli ? _yeniProje : null,
-                            icon: const Icon(Icons.add, size: 16),
-                            label: const Text('Yeni'),
+                          sag: Wrap(
+                            spacing: 4,
+                            children: [
+                              TextButton.icon(
+                                onPressed: bagli ? _klonla : null,
+                                icon: const Icon(
+                                  Icons.download_outlined,
+                                  size: 16,
+                                ),
+                                label: const Text('Klonla'),
+                              ),
+                              TextButton.icon(
+                                onPressed: bagli ? _yeniProje : null,
+                                icon: const Icon(Icons.add, size: 16),
+                                label: const Text('Yeni'),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 8),

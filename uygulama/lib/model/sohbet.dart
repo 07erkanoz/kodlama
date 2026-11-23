@@ -83,6 +83,8 @@ class Sohbet extends ChangeNotifier {
   String get ajan => _ozet['ajan'] as String;
   String get cwd => _ozet['cwd'] as String;
   String get baslik => (_ozet['baslik'] as String?) ?? '';
+  String? get sunucu => _ozet['sunucu'] as String?;
+  String? get uzakKlasor => _ozet['uzak_klasor'] as String?;
   String get mod => (_ozet['mod'] as String?) ?? 'sor';
   bool get calisiyor => _ozet['durum'] == 'calisiyor';
 

@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../model/calisma.dart';
 import '../model/sohbet.dart';
+import 'git_paneli.dart';
 import 'onizleme.dart';
 
-/// Çalışma klasörü: bu oturumda değişen dosyalar ve klasör gezgini.
+/// Çalışma klasörü: bu oturumda değişen dosyalar, klasör gezgini ve Git.
 class DosyaPaneli extends StatefulWidget {
   const DosyaPaneli({
     super.key,
@@ -41,6 +42,7 @@ class _DosyaPaneliState extends State<DosyaPaneli> {
   }
 
   void _yukle() {
+    if (widget.sohbet.sunucu != null) return;
     setState(() {
       _liste = widget.calisma.istemci.iste('listele', {'yol': _klasor});
     });
@@ -50,7 +52,7 @@ class _DosyaPaneliState extends State<DosyaPaneli> {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Material(
         color: t.colorScheme.surfaceContainerLow,
         child: SafeArea(
@@ -61,10 +63,17 @@ class _DosyaPaneliState extends State<DosyaPaneli> {
                 tabs: [
                   Tab(text: 'Bu oturum'),
                   Tab(text: 'Klasör'),
+                  Tab(text: 'Git'),
                 ],
               ),
               Expanded(
-                child: TabBarView(children: [_oturumDosyalari(t), _gezgin(t)]),
+                child: TabBarView(
+                  children: [
+                    _oturumDosyalari(t),
+                    widget.sohbet.sunucu != null ? _uzak(t) : _gezgin(t),
+                    GitPaneli(calisma: widget.calisma, sohbet: widget.sohbet),
+                  ],
+                ),
               ),
             ],
           ),
@@ -72,6 +81,18 @@ class _DosyaPaneliState extends State<DosyaPaneli> {
       ),
     );
   }
+
+  Widget _uzak(ThemeData t) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Text(
+        '${widget.sohbet.sunucu} sunucusundaki klasör (${widget.sohbet.uzakKlasor}) buradan gezilemiyor; '
+        'ajandan dosyaları listelemesini isteyebilirsin.',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: t.colorScheme.onSurfaceVariant),
+      ),
+    ),
+  );
 
   Widget _oturumDosyalari(ThemeData t) {
     return ListenableBuilder(

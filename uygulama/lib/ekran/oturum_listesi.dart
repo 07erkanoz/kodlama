@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
+import 'ayarlar_ekrani.dart';
 
 /// Kenar çubuğu: yeni oturum, gruplanmış oturumlar, kota ve tema.
 /// Dar ekranda çekmecede açılır.
@@ -126,6 +127,18 @@ class OturumListesi extends StatelessWidget {
                     children: [
                       _TemaDugmesi(calisma: c),
                       const Spacer(),
+                      IconButton(
+                        tooltip: 'Ayarlar · GitHub · SSH',
+                        onPressed: () {
+                          secildi?.call();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => AyarlarEkrani(calisma: c),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.settings_outlined, size: 20),
+                      ),
                       IconButton(
                         tooltip: 'Yenile',
                         onPressed: c.yenile,

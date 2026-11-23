@@ -116,6 +116,16 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
   Sohbet get s => widget.sohbet;
 
   void _dosyaAc(String yol) {
+    if (s.sunucu != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$yol ${s.sunucu} sunucusunda; uzak dosyalar henüz önizlenemiyor.',
+          ),
+        ),
+      );
+      return;
+    }
     final tam = yol.startsWith('/') ? yol : '${s.cwd}/$yol';
     if (widget.dosyaAc != null) {
       widget.dosyaAc!(tam);
