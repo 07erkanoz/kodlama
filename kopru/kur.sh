@@ -7,7 +7,7 @@
 #
 # Yaptıkları (her biri ekranda yazılır):
 #   1. Termux paketleri: python, nodejs, git
-#   2. Seçilen ajanlar resmi npm paketlerinden: Codex linux-arm64 paketiyle,
+#   2. Codex resmi GitHub sürümünden,
 #      Claude Code resmi linux paketi + Termux glibc deposuyla
 #   3. Atölye köprüsü (~/.atolye/kopru) ve "atolye-kopru" komutu
 #   4. Uygulamanın Termux'a komut gönderebilmesi için allow-external-apps
@@ -65,7 +65,7 @@ tamam "python $(python --version 2>&1 | cut -d' ' -f2), node $(node --version)"
 
 # Termux'ta Node "android" platformu görünür; npm'in ajan paketleri ise yalnız
 # linux için derlenmiş program taşır. Bu yüzden:
-#   Codex  : linux-arm64 paketi seçilerek kurulur (program statik, doğrudan çalışır)
+#   Codex  : resmi Linux musl ikilisi GitHub'dan indirilir
 #   Claude : resmi linux paketi indirilir, Termux'un glibc deposuyla çalıştırılır
 case "$(uname -m)" in
   aarch64) NPM_CPU=arm64; GLIBC_LD=ld-linux-aarch64.so.1 ;;
@@ -132,25 +132,31 @@ SH
 }
 
 codex_kur() {
-  if [ -z "$NPM_CPU" ]; then
-    uyar "Codex bu işlemcide desteklenmiyor: $(uname -m)"
-    return 1
-  fi
-  npm install -g --os=linux --cpu="$NPM_CPU" @openai/codex || return 1
-  hash -r
+  local sistem surum=0.171.0 ozet
+  sistem="$(uname -m)"
+  case "$sistem" in
+    aarch64) ozet=bcf50b836385e51bd2976ab2bbe92b1b08a1cbe37712eb8dbe378aa78d24871c ;;
+    x86_64) ozet=01baa2e47809f8597be5b2f8abd4e4dfe3fb5bcb6e504c2fbaaad97056c15e8d ;;
+    *) uyar "Codex bu işlemcide desteklenmiyor: $sistem"; return 1 ;;
+  esac
 
-  # npm başlatıcısındaki /usr/bin/env yolu Termux'ta bulunmaz.
-  local baslatici ilk_satir
-  baslatici="$(readlink -f "$PREFIX/bin/codex")" || return 1
-  if [ ! -x "$baslatici" ] || [ ! -x "$PREFIX/bin/node" ]; then
-    uyar "Codex başlatıcısı veya Node bulunamadı"
+  # Doğrulanmış ikiliyi aynı dosya sisteminde hazırla, sonra eski başlatıcıyı değiştir.
+  if ! (
+    gecici="$(mktemp -d "$PREFIX/bin/.atolye-codex.XXXXXX")" || exit 1
+    trap 'rm -rf "$gecici"' EXIT
+    ikili="codex-$sistem-unknown-linux-musl"
+    cd "$gecici" || exit 1
+    curl -fsSL --retry 3 -o "$ikili.tar.gz" \
+      "https://github.com/openai/codex/releases/download/rust-v$surum/$ikili.tar.gz" || exit 1
+    printf '%s  %s\n' "$ozet" "$ikili.tar.gz" | sha256sum -c - || exit 1
+    tar -xzf "$ikili.tar.gz" "$ikili" || exit 1
+    chmod 755 "$ikili" || exit 1
+    "./$ikili" --version || exit 1
+    mv -fT "$ikili" "$PREFIX/bin/codex"
+  ); then
     return 1
   fi
-  IFS= read -r ilk_satir < "$baslatici" || return 1
-  if [ "$ilk_satir" = '#!/usr/bin/env node' ]; then
-    sed -i "1c\\#!$PREFIX/bin/node" "$baslatici" || return 1
-  fi
-  "$PREFIX/bin/codex" --version || return 1
+  hash -r
 
   # Android uygulamaları zaten yalıtılmıştır; Codex'in kum aracı bubblewrap
   # burada çalışmaz (Linux namespace izni yok). Komutlar kumsuz çalışsın;
@@ -198,7 +204,7 @@ for ajan in "${SECILEN[@]}"; do
       fi
       ;;
     codex)
-      adim "Codex kuruluyor (npm: @openai/codex, linux-$NPM_CPU)"
+      adim "Codex kuruluyor (resmi GitHub sürümü)"
       if codex_kur; then
         tamam "Codex kuruldu"
       else
