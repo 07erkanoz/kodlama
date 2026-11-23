@@ -470,7 +470,7 @@ class _KurulumEkraniState extends State<KurulumEkrani>
               ),
               trailing: FilledButton.tonal(
                 onPressed: () async {
-                  final komut = ad == 'codex' ? 'codex login' : 'claude';
+                  final komut = Termux.girisKomutu(ad);
                   bool acildi;
                   try {
                     acildi = await Termux.girisAc(ad);

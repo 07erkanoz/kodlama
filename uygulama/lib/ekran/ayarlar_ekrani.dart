@@ -411,7 +411,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                     if (a['kurulu'] == true)
                       TextButton(
                         onPressed: () => _terminalde(
-                          a['ad'] == 'codex' ? 'codex login' : 'claude',
+                          Termux.girisKomutu(a['ad'] as String),
                           'Giriş',
                         ),
                         child: const Text('Giriş yap'),

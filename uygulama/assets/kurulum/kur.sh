@@ -7,7 +7,7 @@
 #
 # Yaptıkları (her biri ekranda yazılır):
 #   1. Termux paketleri: python, nodejs, git
-#   2. Seçilen ajanlar resmi npm paketlerinden: Codex linux-arm64 paketiyle,
+#   2. Codex Termux paket deposundan,
 #      Claude Code resmi linux paketi + Termux glibc deposuyla
 #   3. Atölye köprüsü (~/.atolye/kopru) ve "atolye-kopru" komutu
 #   4. Uygulamanın Termux'a komut gönderebilmesi için allow-external-apps
@@ -65,7 +65,7 @@ tamam "python $(python --version 2>&1 | cut -d' ' -f2), node $(node --version)"
 
 # Termux'ta Node "android" platformu görünür; npm'in ajan paketleri ise yalnız
 # linux için derlenmiş program taşır. Bu yüzden:
-#   Codex  : linux-arm64 paketi seçilerek kurulur (program statik, doğrudan çalışır)
+#   Codex  : Termux paket deposundan kurulur
 #   Claude : resmi linux paketi indirilir, Termux'un glibc deposuyla çalıştırılır
 case "$(uname -m)" in
   aarch64) NPM_CPU=arm64; GLIBC_LD=ld-linux-aarch64.so.1 ;;
@@ -132,11 +132,17 @@ SH
 }
 
 codex_kur() {
-  if [ -z "$NPM_CPU" ]; then
-    uyar "Codex bu işlemcide desteklenmiyor: $(uname -m)"
-    return 1
+  # Eski npm kurulumu aynı komut yolunu kullanır.
+  if [ -L "$PREFIX/bin/codex" ]; then
+    local hedef
+    hedef="$(readlink "$PREFIX/bin/codex")" || return 1
+    case "$hedef" in
+      */node_modules/@openai/codex/*) npm uninstall -g @openai/codex || return 1 ;;
+    esac
   fi
-  npm install -g --os=linux --cpu="$NPM_CPU" @openai/codex && hash -r && codex --version || return 1
+  "${APT[@]}" install codex || return 1
+  hash -r
+  "$PREFIX/bin/codex" --version || return 1
 
   # Android uygulamaları zaten yalıtılmıştır; Codex'in kum aracı bubblewrap
   # burada çalışmaz (Linux namespace izni yok). Komutlar kumsuz çalışsın;
@@ -184,7 +190,7 @@ for ajan in "${SECILEN[@]}"; do
       fi
       ;;
     codex)
-      adim "Codex kuruluyor (npm: @openai/codex, linux-$NPM_CPU)"
+      adim "Codex kuruluyor (Termux paketi)"
       if codex_kur; then
         tamam "Codex kuruldu"
       else

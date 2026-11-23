@@ -5,7 +5,7 @@ kendi hesabıyla çalışır; Atölye bunları terminal yerine zengin bir arayü
 olarak çizilir, araç çağrıları kart olarak görünür, dosya değişiklikleri ve komutlar onay kartıyla sorulur,
 ajanın ürettiği dosyalar (resim, PDF, Markdown, kod) uygulama içinde önizlenir.
 
-Atölye hiçbir şeyi içine gömmez. Termux kendi resmi kaynağından, ajanlar kendi resmi npm paketlerinden
+Atölye hiçbir şeyi içine gömmez. Termux kendi resmi kaynağından, Codex Termux paket deposundan, Claude Code resmi npm paketinden
 kurulur; giriş her CLI'ın kendi akışıyla yapılır, Atölye hesap bilgisi görmez.
 
 ## Yapı
@@ -52,7 +52,7 @@ açılınca geçmiş buradan gelir. Dosyalar aynı porttan `GET /dosya?yol=…&t
 3. Atölye `kur.sh` ve köprüyü telefonun içinden (127.0.0.1, rastgele port ve yol) sunar; tek satırlık
    komutu panoya kopyalar ve Termux'u açar. Kullanıcı yapıştırır, kurulum biter, köprü başlar.
 4. `RUN_COMMAND` izni istenir (köprüyü yeniden başlatmak ve giriş ekranlarını açmak için).
-5. Giriş: Termux'ta `claude` ya da `codex login` açılır.
+5. Giriş: Termux'ta `claude` ya da `codex login --device-auth` açılır.
 
 Termux'a dışarıdan komut gönderilebilmesi için `allow-external-apps = true` gerekir; bunu kurulum
 scripti yapar. Bu yüzden ilk adımdaki tek yapıştırma kaçınılmazdır.
@@ -127,8 +127,8 @@ Sertifika SHA-256: `0F:61:61:69:52:D5:1B:CA:A8:2E:B5:40:80:91:A9:33:32:91:98:5A:
 ## Bilinen sınırlar ve sıradakiler
 
 - Termux'ta Node "android" platformu görünür, ajan paketleri ise linux programı taşır:
-  - **Codex** `npm install -g --os=linux --cpu=arm64 @openai/codex` ile kurulur; programı statik
-    (musl), Android'de doğrudan çalışır.
+  - **Codex** Termux paket deposundan `pkg install codex` ile kurulur.
+    Termux'ta etkileşimli kullanım için `codex --no-daemon` çalıştırılabilir.
   - **Claude Code** resmi `@anthropic-ai/claude-code-linux-arm64` paketinden indirilir, yükleyicisi
     Termux'un `glibc-repo` deposundaki glibc'ye `patchelf` ile yönlendirilir
     (`~/.atolye/claude/claude`, başlatıcı `$PREFIX/bin/claude`). Termux'un bionic `LD_PRELOAD`'ı
