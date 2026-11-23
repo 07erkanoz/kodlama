@@ -79,15 +79,40 @@ abstract final class Termux {
   /// Köprüyü arka planda başlatır (zaten çalışıyorsa bir şey yapmaz).
   static Future<void> kopruyuBaslat() => calistir('$prefix/bin/atolye-kopru');
 
+  /// Komutu Termux'ta yeni bir terminal oturumunda çalıştırır ve Termux'u
+  /// öne getirir. Android 10 ve sonrasında Termux arka plandan açılan oturumu
+  /// kendisi ekrana getiremez (bunun için "diğer uygulamaların üzerinde
+  /// göster" izni ister); bu yüzden Termux'u Atölye açar.
+  ///
+  /// Komut izni yoksa ya da gönderilemezse komutu panoya kopyalar, Termux'u
+  /// açar ve false döner: kullanıcı yapıştırıp Enter'a basar.
+  static Future<bool> terminaldeAc(String komut) async {
+    // Termux, allow-external-apps kapalıysa komutu sessizce reddeder ve bunu
+    // buradan anlayamayız: komut her durumda panoda da dursun.
+    await Clipboard.setData(ClipboardData(text: komut));
+    if (!destekleniyor) return false;
+    if (await komutIzniVar()) {
+      try {
+        await calistir(
+          '$prefix/bin/bash',
+          args: [
+            '-lc',
+            '$komut; echo; read -p "Bitti. Atölye\'ye dönebilirsin. [Enter]"',
+          ],
+          arkaPlan: false,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await ac();
+        return true;
+      } catch (_) {
+        // aşağıda kopyala-yapıştır yoluna düş
+      }
+    }
+    await ac();
+    return false;
+  }
+
   /// Bir ajanın kendi giriş akışını Termux'ta açar.
-  static Future<void> girisAc(String ajan) => calistir(
-    '$prefix/bin/bash',
-    args: [
-      '-lc',
-      ajan == 'codex'
-          ? 'codex login; echo; read -p "Bitti. Atölye\'ye dönebilirsiniz. [Enter]"'
-          : 'claude; echo; read -p "Bitti. Atölye\'ye dönebilirsiniz. [Enter]"',
-    ],
-    arkaPlan: false,
-  );
+  static Future<bool> girisAc(String ajan) =>
+      terminaldeAc(ajan == 'codex' ? 'codex login' : 'claude');
 }

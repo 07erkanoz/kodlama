@@ -65,20 +65,19 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
 
   /// Termux'ta bir komutu terminal açarak çalıştır; Android dışında komutu kopyala.
   Future<void> _terminalde(String komut, String aciklama) async {
-    if (Termux.destekleniyor && await Termux.komutIzniVar()) {
-      await Termux.calistir(
-        '${Termux.prefix}/bin/bash',
-        args: [
-          '-lc',
-          '$komut; echo; read -p "Bitti. Atölye\'ye dönebilirsin. [Enter]"',
-        ],
-        arkaPlan: false,
-      );
-      return;
+    bool acildi;
+    try {
+      acildi = await Termux.terminaldeAc(komut);
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: komut));
+      acildi = false;
     }
-    await Clipboard.setData(ClipboardData(text: komut));
-    _bildir('$aciklama komutu kopyalandı: $komut');
-    if (Termux.destekleniyor) await Termux.ac();
+    _bildir(
+      acildi
+          ? '$aciklama Termux\'ta açılıyor. Açılmadıysa komut panoda: uzun bas → Paste → Enter.'
+          : '$aciklama komutu kopyalandı: $komut'
+                '${Termux.destekleniyor ? ' · Termux\'ta uzun bas → Paste → Enter.' : ''}',
+    );
   }
 
   @override

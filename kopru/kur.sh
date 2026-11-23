@@ -35,9 +35,21 @@ if [ -z "${PREFIX:-}" ] || [ ! -d "$PREFIX" ]; then
   exit 1
 fi
 
-adim "Termux paketleri güncelleniyor"
-yes | pkg update -y || uyar "paket listesi güncellenemedi, devam ediliyor"
-pkg install -y python nodejs-lts git curl gh openssh
+# Sorusuz apt: yükseltmede "yapılandırma dosyası değişti" sorusunda takılmasın.
+export DEBIAN_FRONTEND=noninteractive
+APT=(apt-get -y -o Dpkg::Options::=--force-confnew)
+
+adim "Termux depoları güncelleniyor (apt update)"
+if ! pkg update -y; then
+  uyar "depo güncellenemedi. İnternet bağlantısını kontrol et ya da 'termux-change-repo' ile başka bir ayna seç, sonra komutu yeniden çalıştır."
+  exit 1
+fi
+
+adim "Paketler yükseltiliyor (apt upgrade)"
+"${APT[@]}" full-upgrade || uyar "bazı paketler yükseltilemedi, devam ediliyor"
+
+adim "Gerekli paketler kuruluyor"
+"${APT[@]}" install python nodejs-lts git curl gh openssh
 pip install --upgrade --quiet websockets
 tamam "python $(python --version 2>&1 | cut -d' ' -f2), node $(node --version)"
 

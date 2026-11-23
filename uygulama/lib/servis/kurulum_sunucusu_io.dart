@@ -44,9 +44,18 @@ class KurulumSunucusu {
   }
 
   /// Kullanıcının Termux'a yapıştıracağı tek satır.
+  ///
+  /// Yeni kurulmuş Termux'ta paket listesi eskidir: önce depo güncellenir ve
+  /// paketler yükseltilir, yoksa `pkg install` hata verir. Yükseltme sırasında
+  /// dpkg'nin "yapılandırma dosyası değişti" sorusunda takılmaması için
+  /// sorusuz kip ve `--force-confnew` kullanılır.
   String komut({required String token, required List<String> ajanlar}) {
     final kaynak = 'http://127.0.0.1:$port/$_gizli';
-    return 'pkg install -y curl && curl -fsS $kaynak/kur.sh | '
+    return 'export DEBIAN_FRONTEND=noninteractive; '
+        'pkg update -y && '
+        'apt-get -y -o Dpkg::Options::=--force-confnew full-upgrade && '
+        'apt-get -y install curl && '
+        'curl -fsS $kaynak/kur.sh | '
         'bash -s -- --kaynak $kaynak --token $token --ajan ${ajanlar.join(',')}';
   }
 }

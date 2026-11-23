@@ -360,9 +360,14 @@ class _KurulumEkraniState extends State<KurulumEkrani>
         const SizedBox(height: 8),
         const Text(
           '1. Aşağıdaki düğme komutu kopyalar ve Termux\'u açar.\n'
-          '2. Termux\'u ilk kez açıyorsan hazırlanmasını bekle.\n'
-          '3. Ekrana uzun bas → Yapıştır → Enter.\n'
-          '4. Kurulum bitince buraya dön; Atölye köprüyü kendisi bulur.',
+          '2. Termux\'u ilk kez açıyorsan "Installing…" yazısı bitene kadar bekle.\n'
+          '3. Ekrana uzun bas → Paste (Yapıştır) → Enter.\n'
+          '4. Komut önce depoları günceller ve paketleri yükseltir (apt update / '
+          'upgrade), sonra kurulumu yapar. İlk seferde birkaç dakika sürebilir; '
+          'soru sormaz.\n'
+          '5. Kurulum bitince buraya dön; Atölye köprüyü kendisi bulur.\n\n'
+          'Depo hatası alırsan Termux\'ta "termux-change-repo" yazıp başka bir '
+          'ayna seç, sonra komutu yeniden yapıştır.',
         ),
         const SizedBox(height: 12),
         Container(
@@ -464,16 +469,27 @@ class _KurulumEkraniState extends State<KurulumEkrani>
                     : 'kurulu görünmüyor — Termux\'taki çıktıya bak',
               ),
               trailing: FilledButton.tonal(
-                onPressed: _izinVar
-                    ? () => Termux.girisAc(ad)
-                    : () async {
-                        await Clipboard.setData(
-                          ClipboardData(
-                            text: ad == 'codex' ? 'codex login' : 'claude',
-                          ),
-                        );
-                        await Termux.ac();
-                      },
+                onPressed: () async {
+                  final komut = ad == 'codex' ? 'codex login' : 'claude';
+                  bool acildi;
+                  try {
+                    acildi = await Termux.girisAc(ad);
+                  } catch (e) {
+                    acildi = false;
+                    await Clipboard.setData(ClipboardData(text: komut));
+                  }
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      duration: const Duration(seconds: 6),
+                      content: Text(
+                        acildi
+                            ? 'Termux\'ta giriş açılıyor. Açılmadıysa komut panoda: uzun bas → Paste → Enter.'
+                            : '"$komut" komutu kopyalandı. Termux\'ta ekrana uzun bas → Paste → Enter.',
+                      ),
+                    ),
+                  );
+                },
                 child: const Text('Giriş yap'),
               ),
             ),
