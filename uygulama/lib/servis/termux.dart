@@ -112,7 +112,10 @@ abstract final class Termux {
     return false;
   }
 
+  static String girisKomutu(String ajan) =>
+      ajan == 'codex' ? 'codex login --device-auth' : 'claude';
+
   /// Bir ajanın kendi giriş akışını Termux'ta açar.
   static Future<bool> girisAc(String ajan) =>
-      terminaldeAc(ajan == 'codex' ? 'codex login' : 'claude');
+      terminaldeAc(girisKomutu(ajan));
 }
