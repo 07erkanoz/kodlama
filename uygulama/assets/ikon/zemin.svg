@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E1B4B"/>
+      <stop offset="0.55" stop-color="#4338CA"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <radialGradient id="isik" cx="0.28" cy="0.22" r="0.75">
+      <stop offset="0" stop-color="#A5B4FC" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#A5B4FC" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="kor" cx="0.66" cy="0.62" r="0.45">
+      <stop offset="0" stop-color="#F97316" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#F97316" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <g fill="#FFFFFF" fill-opacity="0.07"><circle cx="96" cy="96" r="7"/><circle cx="192" cy="96" r="7"/><circle cx="288" cy="96" r="7"/><circle cx="384" cy="96" r="7"/><circle cx="480" cy="96" r="7"/><circle cx="576" cy="96" r="7"/><circle cx="672" cy="96" r="7"/><circle cx="768" cy="96" r="7"/><circle cx="864" cy="96" r="7"/><circle cx="960" cy="96" r="7"/><circle cx="96" cy="192" r="7"/><circle cx="192" cy="192" r="7"/><circle cx="288" cy="192" r="7"/><circle cx="384" cy="192" r="7"/><circle cx="480" cy="192" r="7"/><circle cx="576" cy="192" r="7"/><circle cx="672" cy="192" r="7"/><circle cx="768" cy="192" r="7"/><circle cx="864" cy="192" r="7"/><circle cx="960" cy="192" r="7"/><circle cx="96" cy="288" r="7"/><circle cx="192" cy="288" r="7"/><circle cx="288" cy="288" r="7"/><circle cx="384" cy="288" r="7"/><circle cx="480" cy="288" r="7"/><circle cx="576" cy="288" r="7"/><circle cx="672" cy="288" r="7"/><circle cx="768" cy="288" r="7"/><circle cx="864" cy="288" r="7"/><circle cx="960" cy="288" r="7"/><circle cx="96" cy="384" r="7"/><circle cx="192" cy="384" r="7"/><circle cx="288" cy="384" r="7"/><circle cx="384" cy="384" r="7"/><circle cx="480" cy="384" r="7"/><circle cx="576" cy="384" r="7"/><circle cx="672" cy="384" r="7"/><circle cx="768" cy="384" r="7"/><circle cx="864" cy="384" r="7"/><circle cx="960" cy="384" r="7"/><circle cx="96" cy="480" r="7"/><circle cx="192" cy="480" r="7"/><circle cx="288" cy="480" r="7"/><circle cx="384" cy="480" r="7"/><circle cx="480" cy="480" r="7"/><circle cx="576" cy="480" r="7"/><circle cx="672" cy="480" r="7"/><circle cx="768" cy="480" r="7"/><circle cx="864" cy="480" r="7"/><circle cx="960" cy="480" r="7"/><circle cx="96" cy="576" r="7"/><circle cx="192" cy="576" r="7"/><circle cx="288" cy="576" r="7"/><circle cx="384" cy="576" r="7"/><circle cx="480" cy="576" r="7"/><circle cx="576" cy="576" r="7"/><circle cx="672" cy="576" r="7"/><circle cx="768" cy="576" r="7"/><circle cx="864" cy="576" r="7"/><circle cx="960" cy="576" r="7"/><circle cx="96" cy="672" r="7"/><circle cx="192" cy="672" r="7"/><circle cx="288" cy="672" r="7"/><circle cx="384" cy="672" r="7"/><circle cx="480" cy="672" r="7"/><circle cx="576" cy="672" r="7"/><circle cx="672" cy="672" r="7"/><circle cx="768" cy="672" r="7"/><circle cx="864" cy="672" r="7"/><circle cx="960" cy="672" r="7"/><circle cx="96" cy="768" r="7"/><circle cx="192" cy="768" r="7"/><circle cx="288" cy="768" r="7"/><circle cx="384" cy="768" r="7"/><circle cx="480" cy="768" r="7"/><circle cx="576" cy="768" r="7"/><circle cx="672" cy="768" r="7"/><circle cx="768" cy="768" r="7"/><circle cx="864" cy="768" r="7"/><circle cx="960" cy="768" r="7"/><circle cx="96" cy="864" r="7"/><circle cx="192" cy="864" r="7"/><circle cx="288" cy="864" r="7"/><circle cx="384" cy="864" r="7"/><circle cx="480" cy="864" r="7"/><circle cx="576" cy="864" r="7"/><circle cx="672" cy="864" r="7"/><circle cx="768" cy="864" r="7"/><circle cx="864" cy="864" r="7"/><circle cx="960" cy="864" r="7"/><circle cx="96" cy="960" r="7"/><circle cx="192" cy="960" r="7"/><circle cx="288" cy="960" r="7"/><circle cx="384" cy="960" r="7"/><circle cx="480" cy="960" r="7"/><circle cx="576" cy="960" r="7"/><circle cx="672" cy="960" r="7"/><circle cx="768" cy="960" r="7"/><circle cx="864" cy="960" r="7"/><circle cx="960" cy="960" r="7"/></g>
+  <rect width="1024" height="1024" fill="url(#isik)"/>
+  <rect width="1024" height="1024" fill="url(#kor)"/>
+</svg>
