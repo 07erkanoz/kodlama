@@ -12,7 +12,7 @@ void main() {
   });
 
   test('uygulamadaki kurulum dosyaları köprü kaynağıyla aynı', () {
-    for (final ad in ['kur.sh', 'atolye_kopru.py']) {
+    for (final ad in ['kur.sh', 'atolye_kopru.py', 'termux_rehberi.md']) {
       expect(
         File('assets/kurulum/$ad').readAsStringSync(),
         File('../kopru/$ad').readAsStringSync(),

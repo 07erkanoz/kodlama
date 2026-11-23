@@ -38,6 +38,11 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
 
   static const _oneriler = [
     (
+      Icons.build_circle_outlined,
+      'Ortamı hazırla',
+      'Bu projeyi çalıştırmak için gereken araçları ve bağımlılıkları Termux\'ta kur, sonra projeyi çalıştırıp bana nasıl açacağımı söyle.',
+    ),
+    (
       Icons.travel_explore,
       'Projeyi incele',
       'Bu projeyi incele: ne yapıyor, nasıl çalışıyor, nereden başlamalıyım? Kısa bir özet çıkar.',

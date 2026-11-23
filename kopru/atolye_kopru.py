@@ -49,6 +49,19 @@ EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
 METIN_SINIRI = 512 * 1024
+TERMUX = "com.termux" in os.environ.get("PREFIX", "")
+REHBER = Path(__file__).with_name("termux_rehberi.md")
+
+
+def ajan_rehberi() -> str | None:
+    """Termux'ta ajanlara verilen ortam bilgisi (paket kurma, Termux'a özgü sorunlar).
+    Kullanıcının kendi CLAUDE.md / AGENTS.md dosyalarına dokunulmaz."""
+    if not (TERMUX or os.environ.get("ATOLYE_REHBER")):
+        return None
+    try:
+        return REHBER.read_text(encoding="utf-8")
+    except OSError:
+        return None
 CIKTI_SINIRI = 4000
 TARAMA_SINIRI = 20000
 
@@ -517,6 +530,7 @@ class Oturum:
     async def _baslat(self, args: list[str]):
         env = dict(os.environ)
         env.setdefault("TERM", "dumb")
+        env["DEBIAN_FRONTEND"] = "noninteractive"  # ajanın apt/pkg kurulumları soru sormasın
         if self.sunucu:
             s = self.k.sunucular().get(self.sunucu)
             if not s:
@@ -615,6 +629,9 @@ class ClaudeOturum(Oturum):
             a += ["--model", self.model]
         if self.effort:
             a += ["--effort", self.effort]
+        rehber = None if self.sunucu else ajan_rehberi()
+        if rehber:
+            a += ["--append-system-prompt", rehber]
         if self.sid:
             a += ["--resume", self.sid]
         return a
@@ -782,6 +799,9 @@ class CodexOturum(Oturum):
             except RuntimeError as e:
                 self.yay({"ev": "uyari", "metin": f"oturum sürdürülemedi, yeni başlıyor: {e}"})
         if sonuc is None:
+            rehber = None if self.sunucu else ajan_rehberi()
+            if rehber:
+                prm["developerInstructions"] = rehber
             sonuc = await self._rpc("thread/start", prm)
         self.sid = sonuc["thread"]["id"]
         self.k.oturumlari_kaydet()
@@ -1063,6 +1083,35 @@ class Kopru:
         self._codex_modelleri = (simdi(), out)
         return out
 
+    ARACLAR = [
+        ("node", "Node.js"), ("python", "Python"), ("git", "Git"), ("gh", "GitHub CLI"),
+        ("clang", "Clang"), ("cmake", "CMake"), ("rustc", "Rust"), ("go", "Go"),
+        ("java", "Java"), ("kotlinc", "Kotlin"), ("gradle", "Gradle"), ("dart", "Dart"),
+        ("flutter", "Flutter"), ("php", "PHP"), ("ruby", "Ruby"), ("sqlite3", "SQLite"),
+        ("ffmpeg", "FFmpeg"), ("proot-distro", "proot-distro"), ("ssh", "OpenSSH"),
+    ]
+
+    async def araclar(self) -> dict:
+        """Kurulu geliştirme araçları ve sürümleri; Termux disk durumu."""
+        async def surum(komut):
+            yol = shutil.which(komut)
+            if not yol:
+                return None
+            for bayrak in (["--version"], ["version"], ["-version"]):
+                kod, out, err = await calistir([yol, *bayrak], sure=8)
+                satir = (out or err).strip().splitlines()
+                if kod == 0 and satir:
+                    return satir[0][:80]
+            return "kurulu"
+        sonuclar = await asyncio.gather(*(surum(k) for k, _ in self.ARACLAR))
+        disk = shutil.disk_usage(Path.home())
+        return {
+            "termux": TERMUX,
+            "araclar": [{"komut": k, "ad": ad, "surum": s} for (k, ad), s in zip(self.ARACLAR, sonuclar)],
+            "depolama": (Path.home() / "storage").exists(),
+            "disk_bos": disk.free, "disk_toplam": disk.total,
+        }
+
     async def ajanlar(self):
         out = []
         for ad in ("claude", "codex"):
@@ -1211,6 +1260,8 @@ class Kopru:
             ozet = o.ozet()
             self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": ozet})
             return {"oturum": ozet}
+        if op == "araclar":
+            return await self.araclar()
         if op == "modeller":
             return {"modeller": await self.modeller(m.get("ajan", "claude")), "effort_adlari": EFFORT_ADLARI}
         if op == "listele":

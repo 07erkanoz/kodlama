@@ -49,6 +49,15 @@ fi
 adim "Paketler yükseltiliyor (apt upgrade)"
 "${APT[@]}" full-upgrade || uyar "bazı paketler yükseltilemedi, devam ediliyor"
 
+# Ajanlar da paket kuracak: apt her zaman sorusuz çalışsın, kullanıcının
+# değiştirdiği yapılandırma dosyaları korunsun.
+mkdir -p "$PREFIX/etc/apt/apt.conf.d"
+cat > "$PREFIX/etc/apt/apt.conf.d/99atolye" <<'APT'
+// Atölye: ajanların kurduğu paketler soru sormadan kurulsun.
+APT::Get::Assume-Yes "true";
+Dpkg::Options { "--force-confdef"; "--force-confold"; };
+APT
+
 adim "Gerekli paketler kuruluyor"
 "${APT[@]}" install python nodejs-lts git curl gh openssh
 pip install --upgrade --quiet websockets
@@ -157,8 +166,12 @@ adim "Atölye köprüsü kuruluyor"
 mkdir -p "$HOME/.atolye/kopru" "$HOME/projeler"
 if [ -n "$KAYNAK" ]; then
   curl -fsS "$KAYNAK/atolye_kopru.py" -o "$HOME/.atolye/kopru/atolye_kopru.py"
+  # ajanlara verilen Termux rehberi (paket kurma, Termux'a özgü sorunlar)
+  curl -fsS "$KAYNAK/termux_rehberi.md" -o "$HOME/.atolye/kopru/termux_rehberi.md" || \
+    uyar "ajan rehberi indirilemedi"
 elif [ -f "$(dirname "$0")/atolye_kopru.py" ]; then
   cp "$(dirname "$0")/atolye_kopru.py" "$HOME/.atolye/kopru/"
+  cp "$(dirname "$0")/termux_rehberi.md" "$HOME/.atolye/kopru/" 2>/dev/null || true
 else
   echo "köprü dosyası bulunamadı (--kaynak verilmedi)" >&2
   exit 1

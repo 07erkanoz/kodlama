@@ -18,6 +18,7 @@ class AyarlarEkrani extends StatefulWidget {
 class _AyarlarEkraniState extends State<AyarlarEkrani> {
   Map<String, dynamic>? _gh;
   Map<String, dynamic>? _ssh;
+  Map<String, dynamic>? _araclar;
   final _sinanan = <String, String>{}; // sunucu → test sonucu
   String? _calisan;
 
@@ -33,10 +34,12 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
     try {
       final gh = await c.istemci.iste('gh_durum');
       final ssh = await c.istemci.iste('ssh_durum');
+      final araclar = await c.istemci.iste('araclar');
       if (mounted) {
         setState(() {
           _gh = gh;
           _ssh = ssh;
+          _araclar = araclar;
         });
       }
       await c.yenile();
@@ -99,6 +102,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  _termuxBolumu(t),
                   _Bolum(
                     simge: Icons.hub_outlined,
                     baslik: 'GitHub',
@@ -332,6 +336,173 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
         ],
       ),
     );
+  }
+
+  Widget _termuxBolumu(ThemeData t) {
+    final r = t.colorScheme;
+    final d = _araclar;
+    final araclar = ((d?['araclar'] as List?) ?? const []).cast<Map>();
+    final termux = Termux.destekleniyor;
+    String gb(num? b) => b == null ? '?' : '${(b / 1e9).toStringAsFixed(1)} GB';
+    return _Bolum(
+      simge: Icons.terminal,
+      baslik: 'Termux ve geliştirme araçları',
+      aciklama:
+          'Ajanlar eksik araçları kendileri kurar: "Rust kur ve bir proje başlat" demen yeterli. '
+          'İstersen buradan da kurabilirsin.',
+      sag: IconButton(
+        tooltip: 'Yenile',
+        onPressed: _yukle,
+        icon: const Icon(Icons.refresh, size: 18),
+      ),
+      child: d == null
+          ? const LinearProgressIndicator()
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final a in araclar)
+                      Tooltip(
+                        message: a['surum'] as String? ?? 'kurulu değil',
+                        child: Chip(
+                          visualDensity: VisualDensity.compact,
+                          avatar: Icon(
+                            a['surum'] != null
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            size: 15,
+                            color: a['surum'] != null
+                                ? const Color(0xFF22C55E)
+                                : r.outline,
+                          ),
+                          label: Text(
+                            a['ad'] as String,
+                            style: TextStyle(
+                              color: a['surum'] != null
+                                  ? r.onSurface
+                                  : r.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Boş alan: ${gb(d['disk_bos'] as num?)} / ${gb(d['disk_toplam'] as num?)}'
+                  '${termux ? (d['depolama'] == true ? ' · paylaşılan depolama bağlı' : ' · paylaşılan depolama bağlı değil') : ''}',
+                  style: t.textTheme.bodySmall?.copyWith(
+                    color: r.onSurfaceVariant,
+                  ),
+                ),
+                if (termux) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: _paketKur,
+                        icon: const Icon(Icons.add_box_outlined, size: 18),
+                        label: const Text('Paket kur'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _terminalde('pkg upgrade -y', 'Güncelleme'),
+                        icon: const Icon(Icons.system_update_alt, size: 18),
+                        label: const Text('Tümünü güncelle'),
+                      ),
+                      if (d['depolama'] != true)
+                        OutlinedButton.icon(
+                          onPressed: () => _terminalde(
+                            'termux-setup-storage',
+                            'Depolama izni',
+                          ),
+                          icon: const Icon(Icons.sd_storage_outlined, size: 18),
+                          label: const Text('Depolama erişimi ver'),
+                        ),
+                      OutlinedButton.icon(
+                        onPressed: () => _terminalde(
+                          'pkg install -y proot-distro && proot-distro install ubuntu',
+                          'Ubuntu kurulumu',
+                        ),
+                        icon: const Icon(Icons.layers_outlined, size: 18),
+                        label: const Text('Ubuntu (proot) kur'),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
+
+  Future<void> _paketKur() async {
+    final ad = TextEditingController();
+    final paket = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Termux paketi kur'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: ad,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'ör. rust golang openjdk-21 dart',
+                ),
+                onSubmitted: (v) => Navigator.pop(context, v),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final p in const [
+                    'nodejs-lts',
+                    'python',
+                    'rust',
+                    'golang',
+                    'openjdk-21',
+                    'dart',
+                    'clang',
+                    'php',
+                  ])
+                    ActionChip(
+                      label: Text(p),
+                      onPressed: () => ad.text = '${ad.text} $p'.trim(),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ad.text),
+            child: const Text('Kur'),
+          ),
+        ],
+      ),
+    );
+    final temiz = (paket ?? '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => RegExp(r'^[a-z0-9][a-z0-9+.\-]*$').hasMatch(p))
+        .join(' ');
+    if (temiz.isEmpty) return;
+    await _terminalde('pkg install -y $temiz', 'Kurulum');
   }
 
   Future<void> _sunucuDuzenle([Map<String, dynamic>? s]) async {

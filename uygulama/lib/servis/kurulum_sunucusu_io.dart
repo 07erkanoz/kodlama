@@ -27,7 +27,11 @@ class KurulumSunucusu {
       final cevap = istek.response;
       if (yol.length == 2 &&
           yol[0] == _gizli &&
-          const {'kur.sh', 'atolye_kopru.py'}.contains(yol[1])) {
+          const {
+            'kur.sh',
+            'atolye_kopru.py',
+            'termux_rehberi.md',
+          }.contains(yol[1])) {
         final veri = await rootBundle.load('assets/kurulum/${yol[1]}');
         cevap.headers.contentType = ContentType.text;
         cevap.add(veri.buffer.asUint8List());
