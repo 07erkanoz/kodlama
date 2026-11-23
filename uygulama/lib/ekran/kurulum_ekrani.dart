@@ -8,6 +8,7 @@ import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
 import '../servis/kurulum_sunucusu.dart';
 import '../servis/termux.dart';
+import '../servis/yerel_token.dart';
 
 /// İlk açılış sihirbazı. Hiçbir şey kullanıcıya sorulmadan kurulmaz;
 /// her adım ne yapılacağını söyler ve onay bekler. Termux, Claude Code ve
@@ -419,7 +420,7 @@ class _ElleBaglanState extends State<_ElleBaglan> {
   late final _port = TextEditingController(
     text: '${widget.calisma.ayarlar.port}',
   );
-  final _token = TextEditingController();
+  late final _token = TextEditingController(text: yerelKopruAnahtari() ?? '');
   String? _hata;
   bool _bekliyor = false;
 
