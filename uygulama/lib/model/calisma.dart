@@ -239,6 +239,7 @@ class Calisma extends ChangeNotifier {
     final ozet = (r['oturum'] as Map).cast<String, dynamic>();
     oturumlar = [ozet, ...oturumlar];
     await sec(ozet);
+    if (yanki) await _yankiCihaziBagla();
   }
 
   /// Asistan'ı aç: varsa en son Asistan oturumu, yoksa yenisi (Codex).
@@ -259,6 +260,19 @@ class Calisma extends ChangeNotifier {
     final ozet = (r['oturum'] as Map).cast<String, dynamic>();
     oturumlar = [ozet, ...oturumlar];
     await sec(ozet);
+    await _yankiCihaziBagla();
+  }
+
+  /// Yeni bir Yankı/Asistan oturumuna son seçilen cihazı bağla. Bağlanamazsa
+  /// oturum cihazsız kalır; çip "Cihaz yok" gösterir, ajan da bunu bilir.
+  Future<void> _yankiCihaziBagla() async {
+    final s = secili;
+    final d = ayarlar.yankiCihaz;
+    if (s == null || !s.yanki || s.cihaz != null || d == null) return;
+    if (!sunucular.any((x) => x['ad'] == d)) return;
+    try {
+      await s.cihazSec(d);
+    } catch (_) {}
   }
 
   Future<void> modelleriYukle(String ajan) async {

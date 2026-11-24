@@ -266,68 +266,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                         : Column(
                             children: [
                               for (final s in sunucular)
-                                ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: const Icon(Icons.computer_outlined),
-                                  title: Text(s['ad'] as String),
-                                  subtitle: Text(
-                                    '${s['kullanici'] != null ? '${s['kullanici']}@' : ''}${s['host']}:${s['port']}'
-                                    '${_sinanan[s['ad']] != null ? '\n${_sinanan[s['ad']]}' : ''}',
-                                  ),
-                                  isThreeLine: _sinanan[s['ad']] != null,
-                                  trailing: Wrap(
-                                    children: [
-                                      IconButton(
-                                        tooltip: 'Bağlantıyı dene',
-                                        onPressed: _calisan != null
-                                            ? null
-                                            : () => _yap('dene', () async {
-                                                try {
-                                                  final r = await c.istemci
-                                                      .iste('sunucu_dene', {
-                                                        'ad': s['ad'],
-                                                      });
-                                                  final araclar =
-                                                      (r['araclar'] as List)
-                                                          .join(', ');
-                                                  _sinanan[s['ad'] as String] =
-                                                      '✓ bağlandı · ${araclar.isEmpty ? 'ajan bulunamadı' : araclar}';
-                                                } catch (e) {
-                                                  _sinanan[s['ad'] as String] =
-                                                      '✗ $e';
-                                                }
-                                              }),
-                                        icon: _calisan == 'dene'
-                                            ? const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                    ),
-                                              )
-                                            : const Icon(Icons.network_check),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Düzenle',
-                                        onPressed: () => _sunucuDuzenle(
-                                          s.cast<String, dynamic>(),
-                                        ),
-                                        icon: const Icon(Icons.edit_outlined),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Sil',
-                                        onPressed: () => _yap(
-                                          'sil',
-                                          () => c.istemci.iste('sunucu_sil', {
-                                            'ad': s['ad'],
-                                          }),
-                                        ),
-                                        icon: const Icon(Icons.delete_outline),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                _sunucuSatiri(t, s.cast<String, dynamic>()),
                             ],
                           ),
                   ),
@@ -696,6 +635,195 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
         .join(' ');
     if (temiz.isEmpty) return;
     await _terminalde('pkg install -y $temiz', 'Kurulum');
+  }
+
+  /// Bir sunucu: adı, adresi, son denemenin sonucu (tam genişlikte) ve
+  /// düğmeler. Bağlantı anahtar yüzünden reddedildiyse "Anahtarı gönder" öne çıkar.
+  Widget _sunucuSatiri(ThemeData t, Map<String, dynamic> s) {
+    final r = t.colorScheme;
+    final ad = s['ad'] as String;
+    final sonuc = _sinanan[ad];
+    final anahtarSorunu =
+        sonuc != null &&
+        sonuc.startsWith('✗') &&
+        sonuc.contains('Permission denied');
+    final mesgul = _calisan != null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.computer_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(ad, style: t.textTheme.titleMedium),
+                    Text(
+                      '${s['kullanici'] != null ? '${s['kullanici']}@' : ''}${s['host']}:${s['port']}',
+                      style: t.textTheme.bodySmall?.copyWith(
+                        color: r.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Düzenle',
+                onPressed: () => _sunucuDuzenle(s),
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                tooltip: 'Sil',
+                onPressed: () => _yap(
+                  'sil',
+                  () => c.istemci.iste('sunucu_sil', {'ad': ad}),
+                ),
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+          if (sonuc != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(36, 4, 0, 0),
+              child: Text(
+                anahtarSorunu
+                    ? '✗ Sunucu bu telefonun anahtarını tanımıyor. "Anahtarı gönder" ile bir kez parolanı girip ekleyebilirsin.'
+                    : sonuc,
+                style: t.textTheme.bodySmall?.copyWith(
+                  color: sonuc.startsWith('✓') ? null : r.error,
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 4, 0, 0),
+            child: Wrap(
+              spacing: 6,
+              children: [
+                TextButton.icon(
+                  onPressed: mesgul ? null : () => _sunucuDene(ad),
+                  icon: _calisan == 'dene:$ad'
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.network_check, size: 18),
+                  label: const Text('Dene'),
+                ),
+                (anahtarSorunu ? FilledButton.tonalIcon : TextButton.icon)(
+                  onPressed: mesgul ? null : () => _anahtarGonder(s),
+                  icon: _calisan == 'anahtar:$ad'
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.key_outlined, size: 18),
+                  label: const Text('Anahtarı gönder'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sunucuDene(String ad) => _yap('dene:$ad', () async {
+    try {
+      final r = await c.istemci.iste('sunucu_dene', {'ad': ad});
+      final araclar = (r['araclar'] as List).join(', ');
+      _sinanan[ad] =
+          '✓ bağlandı · ${araclar.isEmpty ? 'ajan bulunamadı' : araclar}';
+    } catch (e) {
+      _sinanan[ad] = '✗ $e';
+    }
+  });
+
+  /// Bu telefonun SSH anahtarını sunucuya ekler (ssh-copy-id gibi): parola
+  /// bir kez sorulur, köprü onu yalnız bu bağlantı için kullanır, saklamaz.
+  Future<void> _anahtarGonder(Map<String, dynamic> s) async {
+    final ad = s['ad'] as String;
+    final hedef =
+        '${s['kullanici'] != null ? '${s['kullanici']}@' : ''}${s['host']}';
+    final parola = TextEditingController();
+    var gizli = true;
+    final tamam = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, yenile) => AlertDialog(
+          title: const Text('Anahtarı sunucuya gönder'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$hedef hesabının parolasını bir kez gir. Bu telefonun SSH '
+                  'anahtarı (yoksa şimdi oluşturulur) sunucudaki '
+                  '~/.ssh/authorized_keys dosyasına eklenir; sonra Atölye '
+                  'parolasız bağlanır. Parola kaydedilmez.',
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: parola,
+                  autofocus: true,
+                  obscureText: gizli,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: InputDecoration(
+                    labelText: 'Parola',
+                    suffixIcon: IconButton(
+                      tooltip: gizli ? 'Göster' : 'Gizle',
+                      onPressed: () => yenile(() => gizli = !gizli),
+                      icon: Icon(
+                        gizli ? Icons.visibility : Icons.visibility_off,
+                      ),
+                    ),
+                  ),
+                  onSubmitted: (_) => Navigator.pop(context, true),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Vazgeç'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Gönder'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final p = parola.text;
+    parola.dispose();
+    if (tamam != true || p.isEmpty) return;
+    await _yap('anahtar:$ad', () async {
+      try {
+        final r = await c.istemci.iste('sunucu_anahtar_gonder', {
+          'ad': ad,
+          'parola': p,
+        });
+        _bildir(
+          r['vardi'] == true
+              ? 'Anahtar zaten sunucudaydı.'
+              : 'Anahtar eklendi. Bağlantı deneniyor…',
+        );
+      } catch (e) {
+        _sinanan[ad] = '✗ Anahtar gönderilemedi: $e';
+        return;
+      }
+    });
+    if (_sinanan[ad]?.startsWith('✗ Anahtar gönderilemedi') != true) {
+      await _sunucuDene(ad);
+    }
   }
 
   Future<void> _sunucuDuzenle([Map<String, dynamic>? s]) async {

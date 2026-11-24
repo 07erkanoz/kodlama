@@ -243,6 +243,15 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         dil: a.sesDili,
         model: a.sesModeli.isEmpty ? null : a.sesModeli,
       );
+      // Yankı görünümünde konuşma doğrudan tam ekran açılır.
+      if (a.sesGorunumu != 'sade') {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => YankiEkrani(ses: ses, gorunum: a.sesGorunumu),
+          ),
+        );
+      }
     }
   }
 
@@ -428,7 +437,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                           ? 'Araya yaz — çalışan işe eklenir'
                           : 'Devam et…',
                       cipler: [
-                        if (s.asistan) _cihazCipi(),
+                        if (s.yanki) _cihazCipi(),
                         if (s.yanki) _yankiCipi() else araclar.model,
                       ],
                       sagda: [
@@ -503,6 +512,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         final m = ScaffoldMessenger.of(context);
         try {
           final bulunan = await s.cihazSec(v.isEmpty ? null : v);
+          widget.calisma.ayarlar.yankiCihaz = v.isEmpty ? null : v;
           if (v.isEmpty) return;
           m.showSnackBar(
             SnackBar(

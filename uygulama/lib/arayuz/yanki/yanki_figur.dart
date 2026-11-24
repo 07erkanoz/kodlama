@@ -43,8 +43,15 @@ class _YankiFiguruState extends State<YankiFiguru>
     with SingleTickerProviderStateMixin {
   final _saat = ValueNotifier<double>(0);
   final _hareket = AjanMotion();
-  late final Ticker _ticker = createTicker(_tik)..start();
+  late final Ticker _ticker;
   double _son = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Kare kare çizim: zamanlayıcı hemen başlar (geç başlatılırsa figür donar).
+    _ticker = createTicker(_tik)..start();
+  }
 
   void _tik(Duration gecen) {
     final t = gecen.inMicroseconds / 1e6;

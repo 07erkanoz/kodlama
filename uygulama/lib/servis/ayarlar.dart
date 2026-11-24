@@ -84,6 +84,10 @@ class Ayarlar {
   String get yankiDurumNotu => _p.getString('yankiDurumNotu') ?? 'onemli';
   set yankiDurumNotu(String v) => _p.setString('yankiDurumNotu', v);
 
+  /// Yankı ve Asistan'ın son seçilen cihazı (kayıtlı sunucu adı).
+  String? get yankiCihaz => _bos(_p.getString('yankiCihaz'));
+  set yankiCihaz(String? v) => _p.setString('yankiCihaz', v ?? '');
+
   static String? _bos(String? v) => v == null || v.isEmpty ? null : v;
 
   String get sesModeli => _p.getString('sesModeli') ?? '';

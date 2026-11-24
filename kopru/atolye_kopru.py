@@ -393,10 +393,10 @@ KOMUT_ORTAMI = {"GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1", "NO_COLOR
 
 
 async def calistir(args: list[str], cwd: Path | str | None = None, sure: float = 120,
-                   girdi: bytes | None = None) -> tuple[int, str, str]:
+                   girdi: bytes | None = None, ortam: dict | None = None) -> tuple[int, str, str]:
     try:
         p = await asyncio.create_subprocess_exec(
-            *args, cwd=str(cwd) if cwd else None, env={**os.environ, **KOMUT_ORTAMI},
+            *args, cwd=str(cwd) if cwd else None, env={**os.environ, **KOMUT_ORTAMI, **(ortam or {})},
             stdin=asyncio.subprocess.PIPE if girdi is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     except FileNotFoundError:
@@ -869,6 +869,52 @@ def uzak_komut(s: dict, klasor: str, args: list[str]) -> list[str]:
         hedef = shlex.quote(klasor)
     ic = f"cd {hedef} && exec {shlex.join(args)}"
     return ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", ic])]
+
+
+async def ssh_anahtari_hazirla() -> str:
+    """Bu cihazın SSH açık anahtarı; yoksa oluşturulur."""
+    if not SSH_ANAHTAR.exists():
+        SSH_ANAHTAR.parent.mkdir(mode=0o700, exist_ok=True)
+        kod, out, err = await calistir(["ssh-keygen", "-t", "ed25519", "-N", "", "-C",
+                                        f"atolye@{socket.gethostname()}", "-f", str(SSH_ANAHTAR)], sure=30)
+        if kod != 0:
+            raise RuntimeError(err.strip() or out.strip() or "anahtar oluşturulamadı")
+    return SSH_ANAHTAR.with_suffix(".pub").read_text().strip()
+
+
+async def anahtar_gonder(s: dict, parola: str) -> dict:
+    """Bu cihazın açık anahtarını sunucunun ~/.ssh/authorized_keys dosyasına ekler (ssh-copy-id gibi).
+    Parola bir kez SSH_ASKPASS ile verilir: komut satırında görünmez, hiçbir yere yazılmaz."""
+    pub = await ssh_anahtari_hazirla()
+    k = shlex.quote(pub)
+    betik = ("umask 077; mkdir -p ~/.ssh && f=~/.ssh/authorized_keys && touch \"$f\" && "
+             f"if grep -qxF {k} \"$f\"; then echo ATOLYE_VARDI; else "
+             "if [ -s \"$f\" ] && [ -n \"$(tail -c1 \"$f\")\" ]; then echo >> \"$f\"; fi; "
+             f"printf '%s\\n' {k} >> \"$f\" && echo ATOLYE_EKLENDI; fi")
+    hedef = f"{s['kullanici']}@{s['host']}" if s.get("kullanici") else s["host"]
+    args = ["ssh", "-T", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15",
+            "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=keyboard-interactive,password",
+            "-o", "NumberOfPasswordPrompts=1", "-p", str(s.get("port") or 22), hedef,
+            "--", shlex.join(["sh", "-c", betik])]
+    fd, yardimci = tempfile.mkstemp(prefix="askpass-", dir=str(EV))
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write('#!/bin/sh\nprintf \'%s\\n\' "$ATOLYE_SSH_PAROLA"\n')
+        os.chmod(yardimci, 0o700)
+        kod, out, err = await calistir(args, sure=40, ortam={
+            "SSH_ASKPASS": yardimci, "SSH_ASKPASS_REQUIRE": "force", "DISPLAY": os.environ.get("DISPLAY", ":0"),
+            "ATOLYE_SSH_PAROLA": parola})
+    finally:
+        try:
+            os.unlink(yardimci)
+        except OSError:
+            pass
+    if "ATOLYE_EKLENDI" in out or "ATOLYE_VARDI" in out:
+        return {"tamam": True, "vardi": "ATOLYE_VARDI" in out, "anahtar": pub}
+    hata = (err or out).strip()
+    if "Permission denied" in hata:
+        raise RuntimeError("parola kabul edilmedi (ya da sunucuda parolayla giriş kapalı)")
+    raise RuntimeError(kisa(hata, 400) or f"gönderilemedi (çıkış {kod})")
 
 
 # ---------------------------------------------------------------- oturum
@@ -1502,6 +1548,8 @@ class CodexOturum(Oturum):
             prm["developerInstructions"] = ana + (f"\n\n{yerel}" if yerel else "")
         if self.asistan and self.isci != "claude":
             prm["developerInstructions"] += " Bu sohbette claude_sor kapalı: işleri kendin yap."
+        if self.yanki:
+            prm["developerInstructions"] += "\n\n" + self._cihaz_notu()
         sonuc = None
         if self.sid:
             try:
@@ -1649,6 +1697,19 @@ class CodexOturum(Oturum):
             await self.yardimci.kapat()
             self.yardimci = None
         await super().kapat()
+
+    def _cihaz_notu(self) -> str:
+        """Ajan hangi makinenin araçlarına sahip olduğunu bilsin; yoksa kullanıcıyı yönlendirsin."""
+        if self.cihaz and self.cihaz_mcp:
+            adlar = ", ".join(f"cihaz_{a}" for a in self.cihaz_mcp)
+            return (f"Denetlenen cihaz: {self.cihaz} (SSH). Bu makinenin MCP araçları: {adlar}. "
+                    "LifeOS, sunucu, Folio isteklerini bu araçlarla yap.")
+        if self.cihaz:
+            return (f"Seçili cihaz {self.cihaz}, ama orada LifeOS MCP programı bulunamadı. Kullanıcı LifeOS "
+                    "isterse bunu söyle.")
+        return ("Şu an bağlı bir cihaz yok: LifeOS, LifeOS Folio ya da sunucu araçların yok. Kullanıcı bunları "
+                "isterse, uygulamada yazma kutusundaki \"Cihaz\" çipinden kayıtlı bir sunucu seçmesini söyle; "
+                "seçince araçlar bağlanır. Bağlanmış gibi davranma.")
 
     async def cihaz_sec(self, cihaz: str | None):
         """Asistan'ın denetlediği cihazı değiştir. Codex ve Claude yeniden başlar,
@@ -2547,8 +2608,8 @@ class Kopru:
             return {"oturum": o.ozet()}
         if op == "asistan_cihaz":
             o = self._oturum(m)
-            if not isinstance(o, CodexOturum) or not o.asistan:
-                raise ValueError("bu bir Asistan oturumu değil")
+            if not isinstance(o, CodexOturum) or not o.yanki:
+                raise ValueError("bu oturum Yankı modunda değil")
             mcp = await o.cihaz_sec(m.get("cihaz") or None)
             self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": o.ozet()})
             return {"oturum": o.ozet(), "araclar": list(mcp)}
@@ -2703,10 +2764,7 @@ class Kopru:
         if op == "ssh_anahtar_olustur":
             if SSH_ANAHTAR.exists():
                 raise ValueError("anahtar zaten var")
-            SSH_ANAHTAR.parent.mkdir(mode=0o700, exist_ok=True)
-            _sonuc(*await calistir(["ssh-keygen", "-t", "ed25519", "-N", "", "-C",
-                                    f"atolye@{socket.gethostname()}", "-f", str(SSH_ANAHTAR)], sure=30))
-            return {"anahtar": SSH_ANAHTAR.with_suffix(".pub").read_text().strip()}
+            return {"anahtar": await ssh_anahtari_hazirla()}
         if op == "sunucu_kaydet":
             ad = re.sub(r"[^\w.\-]", "", m.get("ad") or "")
             host = (m.get("host") or "").strip()
@@ -2720,6 +2778,13 @@ class Kopru:
                          "port": int(m.get("port") or 22), "klasor": (m.get("klasor") or "~").strip()}
             self.sunuculari_yaz(hepsi)
             return {"sunucu": hepsi[ad]}
+        if op == "sunucu_anahtar_gonder":
+            s = self.sunucular().get(m.get("ad"))
+            if not s:
+                raise ValueError("sunucu bulunamadı")
+            if not m.get("parola"):
+                raise ValueError("parola gerekli")
+            return await anahtar_gonder(s, str(m["parola"]))
         if op == "sunucu_sil":
             hepsi = self.sunucular()
             hepsi.pop(m.get("ad"), None)

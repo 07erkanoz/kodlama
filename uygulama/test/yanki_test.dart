@@ -29,6 +29,8 @@ void main() {
         }
       }
       expect(t.takeException(), isNull);
+      // Figür kendiliğinden hareket etmeli: zamanlayıcı çalışıyor.
+      expect(t.binding.hasScheduledFrame, isTrue);
       await t.pumpWidget(const SizedBox());
     });
   }
