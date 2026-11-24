@@ -4,6 +4,7 @@ import 'package:media_kit/media_kit.dart';
 import 'arayuz/tema.dart';
 import 'ekran/ana_ekran.dart';
 import 'ekran/kurulum_ekrani.dart';
+import 'ekran/paylasim_yoneticisi.dart';
 import 'model/bildirim_yoneticisi.dart';
 import 'model/calisma.dart';
 import 'servis/ayarlar.dart';
@@ -15,12 +16,20 @@ Future<void> main() async {
   final calisma = Calisma(ayarlar);
   // Ajan çalışırken kalıcı bildirim, onay/sonuç bildirimleri; uygulama boyunca yaşar.
   BildirimYoneticisi(calisma);
-  runApp(AtolyeUygulamasi(calisma: calisma));
+  final gezgin = GlobalKey<NavigatorState>();
+  // Paylaş menüsünden gelenler (kurulum bitmişse).
+  if (ayarlar.kurulumBitti) PaylasimYoneticisi(calisma, gezgin);
+  runApp(AtolyeUygulamasi(calisma: calisma, gezgin: gezgin));
 }
 
 class AtolyeUygulamasi extends StatefulWidget {
-  const AtolyeUygulamasi({super.key, required this.calisma});
+  const AtolyeUygulamasi({
+    super.key,
+    required this.calisma,
+    required this.gezgin,
+  });
   final Calisma calisma;
+  final GlobalKey<NavigatorState> gezgin;
 
   @override
   State<AtolyeUygulamasi> createState() => _AtolyeUygulamasiState();
@@ -41,6 +50,7 @@ class _AtolyeUygulamasiState extends State<AtolyeUygulamasi> {
       listenable: widget.calisma,
       builder: (context, _) => MaterialApp(
         title: 'Atölye',
+        navigatorKey: widget.gezgin,
         debugShowCheckedModeBanner: false,
         theme: Tema.acik(),
         darkTheme: Tema.koyu(),

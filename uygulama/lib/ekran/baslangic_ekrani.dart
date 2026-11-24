@@ -22,6 +22,34 @@ class BaslangicEkrani extends StatefulWidget {
 
 class _BaslangicEkraniState extends State<BaslangicEkrani> {
   final _yazi = TextEditingController();
+
+  /// Paylaş menüsünden gelen, ilk mesajla gönderilecek dosyalar.
+  final _paylasilan = <({String ad, String yol, int boyut})>[];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.calisma.paylasim.addListener(_paylasimiAl);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _paylasimiAl());
+  }
+
+  @override
+  void dispose() {
+    widget.calisma.paylasim.removeListener(_paylasimiAl);
+    super.dispose();
+  }
+
+  void _paylasimiAl() {
+    final p = widget.calisma.paylasim.value;
+    if (p == null || !mounted || widget.calisma.secili != null) return;
+    widget.calisma.paylasim.value = null;
+    setState(() {
+      if (p.metin.trim().isNotEmpty) _yazi.text = p.metin.trim();
+      _paylasilan
+        ..clear()
+        ..addAll(p.dosyalar);
+    });
+  }
   String? _proje;
   String? _ajan;
   String _mod = 'otomatik';
@@ -75,7 +103,9 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
         uzakKlasor: sunucu == null
             ? null
             : (_uzakKlasor ?? sunucu['klasor'] as String? ?? '~'),
+        yerelEkler: List.of(_paylasilan),
       );
+      _paylasilan.clear();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -343,6 +373,12 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                           return MesajKutusu(
                             denetleyici: _yazi,
                             gonder: _gonder,
+                            ekler: [for (final d in _paylasilan) d.yol],
+                            ekKaldir: (yol) => setState(
+                              () => _paylasilan.removeWhere(
+                                (d) => d.yol == yol,
+                              ),
+                            ),
                             otomatikOdak: !dar,
                             enAzSatir: 4,
                             gonderilebilir:

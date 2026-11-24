@@ -13,6 +13,7 @@ import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../model/sesli_konusma.dart';
 import '../model/sohbet.dart';
+import '../servis/yerel_dosya.dart';
 import 'canli_onizleme.dart';
 import 'onizleme.dart';
 
@@ -126,6 +127,49 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
   bool _ekYukleniyor = false;
 
   Sohbet get s => widget.sohbet;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.calisma.paylasim.addListener(_paylasimiAl);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _paylasimiAl());
+  }
+
+  @override
+  void dispose() {
+    widget.calisma.paylasim.removeListener(_paylasimiAl);
+    _yazi.dispose();
+    super.dispose();
+  }
+
+  /// Paylaş menüsünden bu sohbete gönderilen: metin yazma kutusuna, dosyalar ek olur.
+  Future<void> _paylasimiAl() async {
+    final p = widget.calisma.paylasim.value;
+    if (p == null || !mounted || widget.calisma.secili?.id != s.id) return;
+    widget.calisma.paylasim.value = null;
+    if (p.metin.trim().isNotEmpty) {
+      final once = _yazi.text.trim();
+      _yazi.text = once.isEmpty ? p.metin.trim() : '$once\n\n${p.metin.trim()}';
+    }
+    if (p.dosyalar.isEmpty) return;
+    setState(() => _ekYukleniyor = true);
+    try {
+      for (final d in p.dosyalar) {
+        final yol = await s.ekYukle(
+          d.ad,
+          base64Encode(await yerelDosyaOku(d.yol)),
+        );
+        if (mounted) setState(() => _ekler.add(yol));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Ek yüklenemedi: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _ekYukleniyor = false);
+    }
+  }
 
   /// Mesajdaki bir bağlantıya ya da dosya yoluna dokunuldu. Web adresleri
   /// tarayıcıda; HTML sayfaları göreli dosyalarıyla tarayıcıda; diğer

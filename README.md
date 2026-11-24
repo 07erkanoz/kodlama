@@ -107,6 +107,9 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   Atölye'nin içinde WebView'da açılır: sohbetteki `localhost`/`127.0.0.1` bağlantıları, HTML
   dosyaları ve oturum menüsündeki "Yerel sunucuyu önizle" (yaygın portları tarar, port elle de
   yazılır). WebView olmayan platformlarda tarayıcıda açılır.
+- **Paylaş menüsü:** başka bir uygulamadan metin, bağlantı, ekran görüntüsü ya da dosya
+  "Atölye"ye paylaşılınca hedef sorulur (açık oturum, son oturumlar, yeni oturum); metin yazma
+  kutusuna, dosyalar ek olarak gelir. Gönderme kullanıcıdadır.
 
 ## Ekran düzenleri
 

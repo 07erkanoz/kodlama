@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -6,7 +7,9 @@ import 'package:flutter/services.dart' show rootBundle;
 import '../servis/ayarlar.dart';
 import '../servis/kopru_istemci.dart';
 import '../servis/kurulum_sunucusu.dart';
+import '../servis/paylasim.dart';
 import '../servis/termux.dart';
+import '../servis/yerel_dosya.dart';
 import 'kurulum.dart';
 import 'sohbet.dart';
 
@@ -74,6 +77,10 @@ class Calisma extends ChangeNotifier {
   Map<String, List<dynamic>> kotalar = {};
   String? kok;
   Sohbet? secili;
+
+  /// Paylaş menüsünden gelip hedefi seçilmiş, henüz yazma kutusuna alınmamış
+  /// içerik: açık sohbet ya da başlangıç ekranı alır ve boşaltır.
+  final paylasim = ValueNotifier<Paylasim?>(null);
   String? onizlenen;
 
   /// Geniş ekranda sağdaki dosya paneli açık mı.
@@ -409,6 +416,7 @@ class Calisma extends ChangeNotifier {
     String? uzakKlasor,
     String? model,
     String? effort,
+    List<({String ad, String yol, int boyut})> yerelEkler = const [],
   }) async {
     await yeniOturum(
       model: model,
@@ -419,7 +427,15 @@ class Calisma extends ChangeNotifier {
       sunucu: sunucu,
       uzakKlasor: uzakKlasor,
     );
-    await secili?.gonder(metin);
+    final s = secili;
+    if (s == null) return;
+    final ekler = <String>[];
+    for (final e in yerelEkler) {
+      ekler.add(
+        await s.ekYukle(e.ad, base64Encode(await yerelDosyaOku(e.yol))),
+      );
+    }
+    await s.gonder(metin, ekler: ekler);
   }
 
   Future<String> projeOlustur(String ad) async {

@@ -28,6 +28,7 @@ class MainActivity : FlutterActivity() {
     private val bildirimIzniKodu = 4712
     private var bekleyenBildirimIzni: MethodChannel.Result? = null
     private var bildirimKanali: MethodChannel? = null
+    private var paylasim: Paylasim? = null
 
     /** Bildirime dokunularak açıldıysa hangi oturum (Dart bir kez alır). */
     private var acilisOturumu: String? = null
@@ -36,6 +37,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         Bildirimler.kanallariKur(this)
         acilisOturumu = intent?.getStringExtra(Bildirimler.EK_OTURUM)
+        paylasim = Paylasim(this, flutterEngine.dartExecutor.binaryMessenger).also { it.isle(intent) }
         bildirimKanali = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "atolye/bildirim").apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -213,6 +215,7 @@ class MainActivity : FlutterActivity() {
     /** Uygulama açıkken bildirime dokunuldu: oturumu Dart'a bildir. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (paylasim?.isle(intent) == true) return
         val oturum = intent.getStringExtra(Bildirimler.EK_OTURUM) ?: return
         bildirimKanali?.invokeMethod("acildi", oturum)
     }
