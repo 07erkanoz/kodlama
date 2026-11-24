@@ -38,35 +38,6 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
 
   Calisma get c => widget.calisma;
 
-  static const _oneriler = [
-    (
-      Icons.build_circle_outlined,
-      'Ortamı hazırla',
-      'Bu projeyi çalıştırmak için gereken araçları ve bağımlılıkları Termux\'ta kur, sonra projeyi çalıştırıp bana nasıl açacağımı söyle.',
-    ),
-    (
-      Icons.travel_explore,
-      'Projeyi incele',
-      'Bu projeyi incele: ne yapıyor, nasıl çalışıyor, nereden başlamalıyım? Kısa bir özet çıkar.',
-    ),
-    (
-      Icons.bug_report_outlined,
-      'Testleri çalıştır',
-      'Testleri çalıştır, başarısız olanların nedenini bul ve düzelt.',
-    ),
-    (
-      Icons.rate_review_outlined,
-      'Kodu gözden geçir',
-      'Son değişiklikleri gözden geçir; hataları, güvenlik sorunlarını ve gereksiz karmaşıklığı listele.',
-    ),
-    (
-      Icons.description_outlined,
-      'README yaz',
-      'Bu proje için kurulumu, kullanımı ve yapıyı anlatan bir README.md yaz.',
-    ),
-    (Icons.auto_fix_high, 'Yeni özellik', 'Şu özelliği ekle: '),
-  ];
-
   List<String> get _kuruluAjanlar => [
     for (final a in c.ajanlar)
       if (a['kurulu'] == true) a['ad'] as String,
@@ -386,27 +357,6 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                             sagda: [?araclar?.bicim],
                           );
                         },
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        alignment: dar
-                            ? WrapAlignment.start
-                            : WrapAlignment.center,
-                        children: [
-                          for (final (simge, ad, metin) in _oneriler)
-                            ActionChip(
-                              avatar: Icon(simge, size: 16),
-                              label: Text(ad),
-                              onPressed: () {
-                                _yazi.text = metin;
-                                _yazi.selection = TextSelection.collapsed(
-                                  offset: metin.length,
-                                );
-                              },
-                            ),
-                        ],
                       ),
                       if (c.projeler.isNotEmpty) ...[
                         const SizedBox(height: 36),
