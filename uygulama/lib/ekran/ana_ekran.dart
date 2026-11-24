@@ -9,6 +9,7 @@ import 'dosya_paneli.dart';
 import 'onizleme.dart';
 import 'oturum_listesi.dart';
 import 'sohbet_gorunumu.dart';
+import 'terminal_sayfasi.dart';
 
 /// Uygulamanın ana düzeni. Ekran boyuna ve katlanır telefonun menteşesine
 /// göre değişir; durum ([Calisma]) değişmediği için katlayıp açınca sohbet
@@ -139,6 +140,13 @@ PreferredSizeWidget _ustCubuk(
           icon: const Icon(Icons.more_horiz),
           onSelected: (v) async {
             if (v == 'yeni') c.baslangica();
+            if (v == 'terminal') {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => TerminalSayfasi(calisma: c, cwd: s.cwd),
+                ),
+              );
+            }
             if (v == 'onizle') {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => CanliOnizleme(calisma: c)),
@@ -167,13 +175,15 @@ PreferredSizeWidget _ustCubuk(
               if (evet == true) await c.oturumSil(s.id);
             }
           },
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'yeni', child: Text('Yeni oturum')),
-            PopupMenuItem(
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'yeni', child: Text('Yeni oturum')),
+            if (s.sunucu == null && c.yetenek('terminal'))
+              const PopupMenuItem(value: 'terminal', child: Text('Terminal')),
+            const PopupMenuItem(
               value: 'onizle',
               child: Text('Yerel sunucuyu önizle'),
             ),
-            PopupMenuItem(value: 'sil', child: Text('Oturumu sil')),
+            const PopupMenuItem(value: 'sil', child: Text('Oturumu sil')),
           ],
         ),
       const SizedBox(width: 6),

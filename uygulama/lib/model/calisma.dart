@@ -12,6 +12,7 @@ import '../servis/termux.dart';
 import '../servis/yerel_dosya.dart';
 import 'kurulum.dart';
 import 'sohbet.dart';
+import 'terminal_oturumu.dart';
 
 enum ThemeModeSecimi { sistem, acik, koyu }
 
@@ -473,6 +474,11 @@ class Calisma extends ChangeNotifier {
     if (!dosyaPaneli) onizlenen = null;
     notifyListeners();
   }
+
+  /// Proje klasörü başına bir terminal; sayfa kapanınca da yaşar.
+  final _terminaller = <String, TerminalOturumu>{};
+  TerminalOturumu terminal(String cwd) =>
+      _terminaller[cwd] ??= TerminalOturumu(istemci, cwd);
 
   void kenarCubuguDegistir() {
     kenarCubugu = !kenarCubugu;

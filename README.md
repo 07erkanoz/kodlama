@@ -116,6 +116,10 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   (re_editor; satır numarası, geri al/yinele, satır kaydırma) açar. Kaydederken dosya okunduktan
   sonra (örneğin ajan tarafından) değiştiyse sorar; köprü dosyayı geçici dosya + `os.replace`
   ile yazar.
+- **Terminal:** oturum menüsündeki "Terminal" proje klasöründe gerçek bir kabuk açar (köprüde PTY,
+  arayüzde xterm). Sayfadan çıkınca kabuk yaşamaya devam eder; Esc, Tab, Ctrl+C, oklar gibi
+  tuşlar alttaki çubuktadır.
+- **Tablet düzeni:** oturum listesi ve dosya paneli üst çubuktaki düğmelerle açılıp kapanır.
 
 ## Ekran düzenleri
 

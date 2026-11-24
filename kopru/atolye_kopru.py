@@ -21,7 +21,9 @@ import argparse
 from collections import deque
 import asyncio
 import base64
+import codecs
 import csv
+import fcntl
 import io
 import json
 import mimetypes
@@ -31,9 +33,12 @@ import secrets
 import shlex
 import socket
 import shutil
+import struct
+import subprocess
 import tempfile
 import signal
 import sys
+import termios
 import time
 import urllib.parse
 import uuid
@@ -49,7 +54,7 @@ from websockets.http11 import Response
 SURUM = "0.9.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -466,6 +471,98 @@ async def gh_durum() -> dict:
         return {"kurulu": False}
     kod, out, _ = await calistir(["gh", "api", "user", "--jq", ".login"], sure=20)
     return {"kurulu": True, "giris": kod == 0, "kullanici": out.strip() if kod == 0 else None}
+
+
+# ---------------------------------------------------------------- terminal
+#
+# Uygulamanın Terminal sekmesi: proje klasöründe gerçek bir kabuk (PTY). Çıktı
+# olay olarak yayınlanır, son 200 KB'ı yeniden bağlanınca geri verilmek üzere
+# tutulur; terminal uygulama kapansa da köprüde yaşamaya devam eder.
+
+class Terminal:
+    GECMIS_SINIRI = 200_000
+
+    def __init__(self, k: "Kopru", cwd: Path, sutun: int, satir: int):
+        import pty  # yalnız POSIX
+        self.k = k
+        self.id = uuid.uuid4().hex[:10]
+        self.cwd = cwd
+        self.canli = True
+        self.gecmis: deque[str] = deque()
+        self._boy = 0
+        self.fd, ikincil = pty.openpty()
+        self._boyut_ver(self.fd, sutun, satir)
+        kabuk = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
+        env = {**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+        env.pop("DEBIAN_FRONTEND", None)
+        self.surec = subprocess.Popen([kabuk, "-l"], cwd=str(cwd), env=env, stdin=ikincil, stdout=ikincil,
+                                      stderr=ikincil, start_new_session=True, close_fds=True)
+        os.close(ikincil)
+        os.set_blocking(self.fd, False)
+        self._cozucu = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        asyncio.get_running_loop().add_reader(self.fd, self._oku)
+
+    def ozet(self) -> dict:
+        return {"tid": self.id, "cwd": str(self.cwd), "canli": self.canli}
+
+    @staticmethod
+    def _boyut_ver(fd, sutun, satir):
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", max(satir, 2), max(sutun, 10), 0, 0))
+
+    def _oku(self):
+        try:
+            ham = os.read(self.fd, 65536)
+        except BlockingIOError:
+            return
+        except OSError:
+            ham = b""
+        if not ham:
+            self._bitti()
+            return
+        veri = self._cozucu.decode(ham)
+        if not veri:
+            return
+        self.gecmis.append(veri)
+        self._boy += len(veri)
+        while self._boy > self.GECMIS_SINIRI and len(self.gecmis) > 1:
+            self._boy -= len(self.gecmis.popleft())
+        self.k.yayinla({"ev": "terminal", "tid": self.id, "veri": veri})
+
+    def _bitti(self):
+        if not self.canli:
+            return
+        self.canli = False
+        try:
+            asyncio.get_running_loop().remove_reader(self.fd)
+        except (ValueError, OSError):
+            pass
+        kod = self.surec.poll()
+        if kod is None:
+            try:
+                kod = self.surec.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                kod = None
+        self.k.yayinla({"ev": "terminal", "tid": self.id, "tur": "kapandi", "kod": kod})
+
+    def yaz(self, veri: str):
+        if self.canli and veri:
+            os.write(self.fd, veri.encode())
+
+    def boyut(self, sutun: int, satir: int):
+        if self.canli:
+            self._boyut_ver(self.fd, sutun, satir)
+
+    def kapat(self):
+        if self.canli:
+            try:
+                os.killpg(self.surec.pid, signal.SIGHUP)
+            except (ProcessLookupError, PermissionError):
+                pass
+            self._bitti()
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------- bulutta derleme
@@ -1332,6 +1429,7 @@ class Kopru:
         self._codex_modelleri: tuple[float, list] | None = None
         self._kur: dict | None = None      # çalışan ya da son biten kurulum
         self._giris: dict | None = None    # çalışan ya da son biten giriş akışı
+        self.terminaller: dict[str, Terminal] = {}
         (EV / "kayit").mkdir(parents=True, exist_ok=True)
         KOK.mkdir(parents=True, exist_ok=True)
         self._yukle()
@@ -1546,6 +1644,32 @@ class Kopru:
                 "kod_iste": d["kod_iste"], "basarili": d["basarili"]}
 
     # --- köprünün kendini güncellemesi
+
+    # --- terminal
+
+    async def terminal_islem(self, op: str, m: dict) -> dict:
+        if op == "terminal_ac":
+            t = Terminal(self, guvenli_yol(m.get("cwd") or KOK), int(m.get("sutun") or 80),
+                         int(m.get("satir") or 24))
+            self.terminaller[t.id] = t
+            return t.ozet()
+        if op == "terminal_liste":
+            return {"terminaller": [t.ozet() for t in self.terminaller.values()]}
+        t = self.terminaller.get(m.get("tid") or "")
+        if not t:
+            raise ValueError("terminal yok")
+        if op == "terminal_yaz":
+            t.yaz(m.get("veri") or "")
+        elif op == "terminal_boyut":
+            t.boyut(int(m.get("sutun") or 80), int(m.get("satir") or 24))
+        elif op == "terminal_gecmis":
+            return {"tid": t.id, "veri": "".join(t.gecmis), "canli": t.canli}
+        elif op == "terminal_kapat":
+            t.kapat()
+            self.terminaller.pop(t.id, None)
+        else:
+            raise ValueError(f"bilinmeyen işlem: {op}")
+        return {}
 
     def kopru_yaz(self, kopru: str, rehber: str | None):
         if any(o.durum == "calisiyor" for o in self.oturumlar.values()):
@@ -1862,6 +1986,9 @@ class Kopru:
         if op == "belge":
             return belge_oku(guvenli_yol(m["yol"]))
 
+        if op.startswith("terminal_"):
+            return await self.terminal_islem(op, m)
+
         # --- bulutta derleme
         if op.startswith("derleme_"):
             cwd = guvenli_yol(m.get("cwd") or KOK)
@@ -2082,6 +2209,8 @@ async def ana(port: int, token: str):
         await dur
     for o in k.oturumlar.values():
         await o.kapat()
+    for t in k.terminaller.values():
+        t.kapat()
 
 
 def main():
