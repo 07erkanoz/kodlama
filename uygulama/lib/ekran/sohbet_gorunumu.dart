@@ -221,7 +221,12 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     if (ses.acik) {
       ses.bitir();
     } else {
-      ses.baslat();
+      final a = widget.calisma.ayarlar;
+      ses.baslat(
+        ses: a.sesSesi.isEmpty ? null : a.sesSesi,
+        dil: a.sesDili,
+        model: a.sesModeli.isEmpty ? null : a.sesModeli,
+      );
     }
   }
 

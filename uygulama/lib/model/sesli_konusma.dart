@@ -65,7 +65,7 @@ class SesliKonusma extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> baslat({String? ses}) async {
+  Future<void> baslat({String? ses, String? dil, String? model}) async {
     if (acik) return;
     hata = null;
     sessiz = false;
@@ -110,6 +110,8 @@ class SesliKonusma extends ChangeNotifier {
           'oturum': oturum,
           'sdp': teklif.sdp,
           'ses': ?ses,
+          'dil': ?dil,
+          'model': ?model,
         });
         final String sdp;
         try {
@@ -320,3 +322,25 @@ bool durdurmaSozu(String soz) {
     (k) => !istisna.contains(k) && kokler.any((s) => k.startsWith(s)),
   );
 }
+
+/// Codex'in realtime sesleri (app-server şeması, RealtimeVoice). Cinsiyet
+/// yalnızca OpenAI'nin tanıttığı seslerde verilir; diğerleri yeni çok dilli
+/// sesler, tınısı denenerek seçilmeli.
+const codexSesleri = <(String, String)>[
+  ('marin', 'kadın'),
+  ('coral', 'kadın'),
+  ('shimmer', 'kadın'),
+  ('sage', 'kadın'),
+  ('cedar', 'erkek'),
+  ('ash', 'erkek'),
+  ('echo', 'erkek'),
+  ('verse', 'erkek'),
+  ('ballad', 'erkek'),
+  ('alloy', 'nötr'),
+  ('arbor', ''), ('aube', ''), ('breeze', ''), ('bubbie', ''), ('cove', ''),
+  ('ember', ''), ('haetsal', ''), ('hanul', ''), ('himari', ''),
+  ('juniper', ''), ('leher', ''), ('maple', ''), ('miko', ''), ('neer', ''),
+  ('porto', ''), ('rindo', ''), ('rio', ''), ('rivage', ''), ('selva', ''),
+  ('sol', ''), ('sonna', ''), ('spruce', ''), ('tinta', ''), ('vale', ''),
+  ('viola', ''),
+];

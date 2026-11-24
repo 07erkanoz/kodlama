@@ -1205,7 +1205,8 @@ class CodexOturum(Oturum):
     # thread'ine bağlıdır: konuşmada istenen iş Codex'e devredilir, Codex aynı
     # proje klasöründe çalışır, araçlar ve onaylar sohbette her zamanki gibi görünür.
 
-    async def ses_baslat(self, sdp: str, ses: str | None = None):
+    async def ses_baslat(self, sdp: str, ses: str | None = None, dil: str | None = None,
+                         model: str | None = None):
         if not sdp:
             raise ValueError("SDP teklifi yok")
         await self._hazirla()
@@ -1218,9 +1219,11 @@ class CodexOturum(Oturum):
                "transport": {"type": "webrtc", "sdp": sdp},
                "codexResponseHandoffMode": "bemTags", "includeStartupContext": True,
                "clientManagedHandoffs": False,
-               "initialItems": [{"role": "developer", "text": SES_TANITIMI}]}
+               "initialItems": [{"role": "developer", "text": ses_tanitimi(dil)}]}
         if ses:
             prm["voice"] = ses
+        if model:
+            prm["model"] = model  # yalnız bu konuşma için realtime modeli
         self.ses = True
         try:
             await self._rpc("thread/realtime/start", prm)
@@ -1244,9 +1247,9 @@ class CodexOturum(Oturum):
 
     async def ses_sesleri(self) -> list[str]:
         await self._hazirla()
-        r = await self._rpc("thread/realtime/listVoices", {"threadId": self.sid})
-        sesler = r.get("voices") or []
-        return [v if isinstance(v, str) else (v or {}).get("id") or (v or {}).get("name") or "" for v in sesler]
+        r = await self._rpc("thread/realtime/listVoices", {})
+        v = r.get("voices") or {}
+        return list(v.get("v3") or v.get("v2") or []) if isinstance(v, dict) else list(v)
 
     async def durdur(self):
         if self.surec and self.tur:
@@ -1398,12 +1401,21 @@ class CodexOturum(Oturum):
 
 SURUCULER = {"claude": ClaudeOturum, "codex": CodexOturum}
 
-SES_TANITIMI = (
-    "Atölye uygulamasında, telefondaki bir yazılım projesinde kullanıcıyla sesli konuşuyorsun. "
-    "Türkçe, kısa ve doğal konuş; kod, yol ya da uzun çıktı okuma, özetle. "
-    "Dosya okuma, kod yazma, komut çalıştırma gibi işleri Codex'e devret; "
-    "Codex'in yaptıkları ekranda sohbette görünür. Onay gereken adımları kullanıcı ekrandan onaylar."
-)
+SES_DILLERI = {
+    "tr": "Yalnızca Türkçe konuş; kullanıcı başka dilde konuşsa da Türkçe cevap ver.",
+    "en": "Speak only English, even if the user speaks another language.",
+    "": "Kullanıcı hangi dilde konuşuyorsa o dilde cevap ver.",
+}
+
+
+def ses_tanitimi(dil: str | None) -> str:
+    return (
+        "Atölye uygulamasında, telefondaki bir yazılım projesinde kullanıcıyla sesli konuşuyorsun. "
+        + SES_DILLERI.get(dil or "tr", SES_DILLERI["tr"])
+        + " Kısa ve doğal konuş; kod, yol ya da uzun çıktı okuma, özetle. "
+        "Dosya okuma, kod yazma, komut çalıştırma gibi işleri Codex'e devret; "
+        "Codex'in yaptıkları ekranda sohbette görünür. Onay gereken adımları kullanıcı ekrandan onaylar."
+    )
 
 EFFORT_ADLARI = {"low": "Düşük", "medium": "Orta", "high": "Yüksek", "xhigh": "Çok yüksek",
                  "max": "En yüksek", "ultra": "Ultra", "minimal": "En az", "none": "Yok"}
@@ -1927,7 +1939,8 @@ class Kopru:
             if not isinstance(o, CodexOturum) or o.sunucu:
                 raise ValueError("sesli konuşma yalnızca bu cihazdaki Codex oturumlarında var")
             if op == "ses_baslat":
-                await o.ses_baslat(m.get("sdp") or "", m.get("ses") or None)
+                await o.ses_baslat(m.get("sdp") or "", m.get("ses") or None, m.get("dil"),
+                                   (m.get("model") or "").strip() or None)
             elif op == "ses_metin":
                 await o.ses_metin((m.get("metin") or "").strip())
             elif op == "ses_bitir":

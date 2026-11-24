@@ -97,6 +97,8 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   iş Codex'e devredilir, Codex aynı projede çalışır, araçlar ve onaylar sohbette görünür (onaylar
   dokunarak verilir). "Kapat/yeter/görüşürüz" ya da 60 sn sessizlik konuşmayı bitirir.
   Codex'in deneysel API'sidir (`experimentalApi`); yalnızca bu cihazdaki Codex oturumlarında.
+  Ayarlar › Sesli konuşma: ses (Codex'in 35 realtime sesi; bilinenlerde kadın/erkek), konuşma
+  dili (Türkçe, English ya da kullanıcının dili) ve isteğe bağlı realtime modeli.
 - **Bulutta APK derleme:** Git panelinde, GitHub'daki bir Flutter projesi için. "İş akışını ekle"
   `.github/workflows/atolye-apk.yml` yazar (arm64 release APK, `apk` yapıtı); "İmza anahtarını
   kur" openssl ile kalıcı bir PKCS12 anahtarı üretir (yedeği `~/.atolye/imza/`), `gh secret set`

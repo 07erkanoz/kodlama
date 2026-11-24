@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
+import '../model/sesli_konusma.dart';
 import '../servis/termux.dart';
 import 'giris_penceresi.dart';
 import 'kurulum_paneli.dart';
@@ -41,6 +42,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
   @override
   void dispose() {
     c.removeListener(_ciz);
+    _sesModeli.dispose();
     super.dispose();
   }
 
@@ -142,6 +144,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _ajanlarBolumu(t),
+                  _sesBolumu(t),
                   _termuxBolumu(t),
                   _Bolum(
                     simge: Icons.hub_outlined,
@@ -428,6 +431,70 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                 ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  late final _sesModeli = TextEditingController(text: c.ayarlar.sesModeli);
+
+  Widget _sesBolumu(ThemeData t) {
+    final a = c.ayarlar;
+    final r = t.colorScheme;
+    String etiket((String, String) v) =>
+        v.$2.isEmpty ? v.$1 : '${v.$1} · ${v.$2}';
+    return _Bolum(
+      simge: Icons.record_voice_over_outlined,
+      baslik: 'Sesli konuşma (Codex)',
+      aciklama:
+          'Sohbetteki mikrofonla açılan Codex sesinin ayarları; bir sonraki '
+          'konuşmada geçerli olur.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DropdownButtonFormField<String>(
+            initialValue: a.sesSesi,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Ses'),
+            items: [
+              const DropdownMenuItem(
+                value: '',
+                child: Text('Codex\'in varsayılanı'),
+              ),
+              for (final v in codexSesleri)
+                DropdownMenuItem(value: v.$1, child: Text(etiket(v))),
+            ],
+            onChanged: (v) => setState(() => a.sesSesi = v ?? ''),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Cinsiyet yalnızca OpenAI\'nin tanıttığı seslerde yazılı; diğerleri '
+            'yeni çok dilli sesler, deneyerek seç.',
+            style: t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            initialValue: a.sesDili,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Konuşma dili'),
+            items: const [
+              DropdownMenuItem(value: 'tr', child: Text('Türkçe')),
+              DropdownMenuItem(value: 'en', child: Text('English')),
+              DropdownMenuItem(value: '', child: Text('Benim konuştuğum dil')),
+            ],
+            onChanged: (v) => setState(() => a.sesDili = v ?? 'tr'),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _sesModeli,
+            decoration: const InputDecoration(
+              labelText: 'Ses modeli',
+              hintText: 'Boş: Codex\'in ayarı (config.toml)',
+              helperText:
+                  'Yalnız ses için, ör. gpt-realtime. İşi yapan model sohbetin modelidir.',
+            ),
+            onChanged: (v) => a.sesModeli = v.trim(),
+          ),
         ],
       ),
     );

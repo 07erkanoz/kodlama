@@ -43,6 +43,15 @@ class Ayarlar {
   bool get dosyaPaneli => _p.getBool('dosyaPaneli') ?? true;
   set dosyaPaneli(bool v) => _p.setBool('dosyaPaneli', v);
 
+  /// Codex sesli konuşma: ses (boşsa Codex'in varsayılanı), dil ('tr', 'en'
+  /// ya da '' = kullanıcının dili), realtime modeli (boşsa Codex'in ayarı).
+  String get sesSesi => _p.getString('sesSesi') ?? '';
+  set sesSesi(String v) => _p.setString('sesSesi', v);
+  String get sesDili => _p.getString('sesDili') ?? 'tr';
+  set sesDili(String v) => _p.setString('sesDili', v);
+  String get sesModeli => _p.getString('sesModeli') ?? '';
+  set sesModeli(String v) => _p.setString('sesModeli', v);
+
   bool get kurulumBitti => _p.getBool('kurulumBitti') ?? false;
   set kurulumBitti(bool v) => _p.setBool('kurulumBitti', v);
 
