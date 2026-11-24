@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../servis/kopru_istemci.dart';
+import 'sesli_konusma.dart';
 
 /// Sohbette görünen bir öğe. Köprünün olaylarından kurulur; geçmiş de canlı
 /// akış da aynı [Sohbet.isle] yolundan geçer.
@@ -103,6 +104,12 @@ class Sohbet extends ChangeNotifier {
   String? get model => _ozet['model'] as String?;
   String? get effort => _ozet['effort'] as String?;
   bool get calisiyor => _ozet['durum'] == 'calisiyor';
+
+  /// Bu sohbetin sesli konuşması (yalnızca bu cihazdaki Codex oturumlarında).
+  SesliKonusma get ses =>
+      _ses ??= SesliKonusma(istemci, id, ajanCalisiyor: () => calisiyor);
+  SesliKonusma? _ses;
+  bool get sesDestekleniyor => ajan == 'codex' && sunucu == null;
 
   /// Bu oturumda değişen ya da üretilen dosyalar, en yenisi önce.
   List<DosyaOge> get dosyalar {
@@ -349,6 +356,7 @@ class Sohbet extends ChangeNotifier {
   @override
   void dispose() {
     _abone?.cancel();
+    _ses?.dispose();
     super.dispose();
   }
 }

@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Köprü 127.0.0.1 üzerinde; dışarıya ağ isteği yalnız indirme sayfaları için tarayıcıdan. -->
+    <!-- Köprü 127.0.0.1 üzerinde; dışarıya ağ: indirme sayfaları ve sesli konuşmanın WebRTC bağlantısı. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Termux'un tanımladığı izin: kullanıcı onaylarsa Termux'ta komut çalıştırılabilir. -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- Ajan onay beklediğinde ya da işi bittiğinde haber vermek için (Android 13+ sorar). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Codex ile sesli konuşma (WebRTC) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <!-- Ajan çalışırken uygulama arka planda kapanmasın: yalnız iş sürerken açık kalan
          ön plan servisi. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>

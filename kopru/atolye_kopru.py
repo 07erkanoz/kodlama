@@ -45,10 +45,10 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.8.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.9.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -622,6 +622,9 @@ class Oturum:
                 self.durum_ver("bos")
             for rid in list(self.onaylar):
                 self.onay_kapandi(rid)
+            if getattr(self, "ses", False):
+                self.ses = False
+                self.yay({"ev": "ses", "tur": "kapandi", "neden": "süreç kapandı"}, kaydet=False)
 
     async def _hata_oku(self, surec):
         son = []
@@ -827,6 +830,7 @@ class CodexOturum(Oturum):
         self._hazir: asyncio.Future | None = None
         self.tur: str | None = None
         self._ogeler: dict[str, dict] = {}
+        self.ses = False  # sesli konuşma açık mı (thread/realtime)
 
     async def _rpc(self, yontem, params=None, bildirim=False):
         m = {"jsonrpc": "2.0", "method": yontem}
@@ -854,7 +858,9 @@ class CodexOturum(Oturum):
         if self.surec:
             return
         await self._baslat([self.komut("codex"), "app-server"])
-        await self._rpc("initialize", {"clientInfo": {"name": "atolye", "version": SURUM}})
+        # experimentalApi: sesli konuşma (thread/realtime/*) bu yetenekle açılır.
+        await self._rpc("initialize", {"clientInfo": {"name": "atolye", "version": SURUM},
+                                       "capabilities": {"experimentalApi": True}})
         await self._rpc("initialized", bildirim=True)
         onay, sandbox = self._politika()
         prm = {"cwd": self.uzak_klasor if self.sunucu else str(self.cwd), "approvalPolicy": onay, "sandbox": sandbox}
@@ -907,6 +913,56 @@ class CodexOturum(Oturum):
         except RuntimeError as e:
             self.yay({"ev": "bitti", "hata": str(e)})
             self.durum_ver("bos")
+
+    # --- sesli konuşma (Codex realtime, WebRTC)
+    #
+    # Ses doğrudan telefonla OpenAI arasında WebRTC ile akar; köprü yalnızca
+    # SDP teklifini Codex'e iletip yanıtını geri verir. Ses bu sohbetin
+    # thread'ine bağlıdır: konuşmada istenen iş Codex'e devredilir, Codex aynı
+    # proje klasöründe çalışır, araçlar ve onaylar sohbette her zamanki gibi görünür.
+
+    async def ses_baslat(self, sdp: str, ses: str | None = None):
+        if not sdp:
+            raise ValueError("SDP teklifi yok")
+        await self._hazirla()
+        if self.ses:
+            try:
+                await self._rpc("thread/realtime/stop", {"threadId": self.sid})
+            except RuntimeError:
+                pass
+        prm = {"threadId": self.sid, "version": "v3", "outputModality": "audio",
+               "transport": {"type": "webrtc", "sdp": sdp},
+               "codexResponseHandoffMode": "bemTags", "includeStartupContext": True,
+               "clientManagedHandoffs": False,
+               "initialItems": [{"role": "developer", "text": SES_TANITIMI}]}
+        if ses:
+            prm["voice"] = ses
+        self.ses = True
+        try:
+            await self._rpc("thread/realtime/start", prm)
+        except RuntimeError:
+            self.ses = False
+            raise
+        # Yanıt SDP'si "thread/realtime/sdp" bildirimiyle gelir (bazen saniyeler sonra).
+
+    async def ses_metin(self, metin: str):
+        if self.ses and metin:
+            await self._rpc("thread/realtime/appendText", {"threadId": self.sid, "text": metin})
+
+    async def ses_bitir(self):
+        if not self.ses:
+            return
+        self.ses = False
+        try:
+            await self._rpc("thread/realtime/stop", {"threadId": self.sid})
+        except RuntimeError:
+            pass
+
+    async def ses_sesleri(self) -> list[str]:
+        await self._hazirla()
+        r = await self._rpc("thread/realtime/listVoices", {"threadId": self.sid})
+        sesler = r.get("voices") or []
+        return [v if isinstance(v, str) else (v or {}).get("id") or (v or {}).get("name") or "" for v in sesler]
 
     async def durdur(self):
         if self.surec and self.tur:
@@ -1011,6 +1067,37 @@ class CodexOturum(Oturum):
                 self.k.kota_ver("codex", pencereler)
         elif yontem == "error" and not prm.get("willRetry"):
             self.yay({"ev": "uyari", "metin": kisa((prm.get("error") or {}).get("message", ""), 1000)})
+        elif yontem.startswith("thread/realtime/"):
+            if prm.get("threadId") not in (None, self.sid):
+                return
+            alt = yontem[len("thread/realtime/"):]
+            if alt == "sdp":
+                self.yay({"ev": "ses", "tur": "sdp", "sdp": prm.get("sdp", "")}, kaydet=False)
+            elif alt == "started":
+                self.yay({"ev": "ses", "tur": "basladi"}, kaydet=False)
+            elif alt == "transcript/delta":
+                self.yay({"ev": "ses", "tur": "parca", "rol": prm.get("role"), "metin": prm.get("delta", "")},
+                         kaydet=False)
+            elif alt == "transcript/done":
+                metin = (prm.get("text") or "").strip()
+                rol = prm.get("role")
+                self.yay({"ev": "ses", "tur": "bitti", "rol": rol, "metin": metin}, kaydet=False)
+                if metin:  # konuşma sohbet geçmişine de yazılsın
+                    self.yay({"ev": "kullanici", "metin": metin, "ekler": [], "sesli": True} if rol == "user"
+                             else {"ev": "metin", "anahtar": f"ses{simdi()}", "metin": metin, "sesli": True})
+            elif alt == "error":
+                self.yay({"ev": "ses", "tur": "hata", "metin": kisa(prm.get("message") or "", 1000)}, kaydet=False)
+            elif alt == "closed":
+                self.ses = False
+                self.yay({"ev": "ses", "tur": "kapandi", "neden": prm.get("reason")}, kaydet=False)
+        elif yontem == "turn/started":
+            # Sesli konuşmadan devredilen işler turu bizim dışımızda başlatır.
+            t = prm.get("turn") or {}
+            if t.get("id"):
+                self.tur = t["id"]
+            if self.durum != "calisiyor":
+                self.tur_basi()
+                self.durum_ver("calisiyor")
         elif yontem == "turn/completed":
             t = prm.get("turn") or {}
             hata = None
@@ -1026,6 +1113,13 @@ class CodexOturum(Oturum):
 
 
 SURUCULER = {"claude": ClaudeOturum, "codex": CodexOturum}
+
+SES_TANITIMI = (
+    "Atölye uygulamasında, telefondaki bir yazılım projesinde kullanıcıyla sesli konuşuyorsun. "
+    "Türkçe, kısa ve doğal konuş; kod, yol ya da uzun çıktı okuma, özetle. "
+    "Dosya okuma, kod yazma, komut çalıştırma gibi işleri Codex'e devret; "
+    "Codex'in yaptıkları ekranda sohbette görünür. Onay gereken adımları kullanıcı ekrandan onaylar."
+)
 
 EFFORT_ADLARI = {"low": "Düşük", "medium": "Orta", "high": "Yüksek", "xhigh": "Çok yüksek",
                  "max": "En yüksek", "ultra": "Ultra", "minimal": "En az", "none": "Yok"}
@@ -1497,6 +1591,19 @@ class Kopru:
             return {}
         if op == "durdur":
             await self._oturum(m).durdur()
+            return {}
+        if op in ("ses_baslat", "ses_metin", "ses_bitir", "ses_sesleri"):
+            o = self._oturum(m)
+            if not isinstance(o, CodexOturum) or o.sunucu:
+                raise ValueError("sesli konuşma yalnızca bu cihazdaki Codex oturumlarında var")
+            if op == "ses_baslat":
+                await o.ses_baslat(m.get("sdp") or "", m.get("ses") or None)
+            elif op == "ses_metin":
+                await o.ses_metin((m.get("metin") or "").strip())
+            elif op == "ses_bitir":
+                await o.ses_bitir()
+            else:
+                return {"sesler": await o.ses_sesleri()}
             return {}
         if op == "onay":
             await self._oturum(m).onayla(m.get("rid"), m.get("karar", "red"))

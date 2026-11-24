@@ -11,6 +11,7 @@ import '../arayuz/markdown.dart';
 import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
+import '../model/sesli_konusma.dart';
 import '../model/sohbet.dart';
 import 'onizleme.dart';
 
@@ -178,6 +179,18 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     return i < 0 ? cwd : cwd.substring(0, i + '/files/home'.length);
   }
 
+  bool get _sesVar =>
+      s.sesDestekleniyor && widget.calisma.yetenek('ses');
+
+  void _sesDegistir() {
+    final ses = s.ses;
+    if (ses.acik) {
+      ses.bitir();
+    } else {
+      ses.baslat();
+    }
+  }
+
   Future<void> _gonder() async {
     final metin = _yazi.text.trim();
     if (metin.isEmpty && _ekler.isEmpty) return;
@@ -261,6 +274,18 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                       },
                     ),
             ),
+            if (_sesVar)
+              ListenableBuilder(
+                listenable: s.ses,
+                builder: (context, _) => s.ses.acik || s.ses.hata != null
+                    ? _sar(
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          child: _SesPaneli(ses: s.ses),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
               child: SafeArea(
@@ -282,7 +307,22 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                           ? 'Araya yaz — çalışan işe eklenir'
                           : 'Devam et…',
                       cipler: [araclar.model],
-                      sagda: [araclar.bicim],
+                      sagda: [
+                        if (_sesVar)
+                          ListenableBuilder(
+                            listenable: s.ses,
+                            builder: (context, _) => IconButton(
+                              tooltip: s.ses.acik
+                                  ? 'Sesli konuşmayı bitir'
+                                  : 'Codex ile sesli konuş',
+                              isSelected: s.ses.acik,
+                              icon: const Icon(Icons.mic_none_rounded),
+                              selectedIcon: const Icon(Icons.mic_rounded),
+                              onPressed: _sesDegistir,
+                            ),
+                          ),
+                        araclar.bicim,
+                      ],
                     ),
                   ),
                 ),
@@ -1121,4 +1161,116 @@ class _UyariSatiri extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 4),
     child: KodKutusu(metin: metin, hata: true, enFazla: 140),
   );
+}
+
+/// Sesli konuşma sürerken yazma kutusunun üstünde: durum, son söylenenler,
+/// sessize al ve bitir.
+class _SesPaneli extends StatelessWidget {
+  const _SesPaneli({required this.ses});
+  final SesliKonusma ses;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
+    final (durum, renk) = switch (ses.durum) {
+      SesDurumu.kapali => ('Kapalı', r.outline),
+      SesDurumu.baglaniyor => ('Bağlanıyor…', r.tertiary),
+      SesDurumu.dinliyor => (ses.sessiz ? 'Sessizde' : 'Dinliyor', r.primary),
+      SesDurumu.konusuyor => ('Konuşuyor', r.secondary),
+      SesDurumu.calisiyor => ('Codex çalışıyor', r.tertiary),
+    };
+    final son = ses.satirlar.length > 4
+        ? ses.satirlar.sublist(ses.satirlar.length - 4)
+        : ses.satirlar;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+      decoration: BoxDecoration(
+        color: r.primaryContainer.withValues(alpha: .35),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: renk.withValues(alpha: .4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              if (ses.durum == SesDurumu.baglaniyor ||
+                  ses.durum == SesDurumu.calisiyor)
+                SizedBox.square(
+                  dimension: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: renk),
+                )
+              else
+                Icon(
+                  ses.acik ? Icons.graphic_eq_rounded : Icons.mic_off_rounded,
+                  size: 18,
+                  color: renk,
+                ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  ses.acik ? 'Sesli konuşma · $durum' : 'Sesli konuşma',
+                  style: t.labelLarge?.copyWith(color: renk),
+                ),
+              ),
+              if (ses.acik)
+                IconButton(
+                  tooltip: ses.sessiz ? 'Mikrofonu aç' : 'Sessize al',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    ses.sessiz ? Icons.mic_off_rounded : Icons.mic_rounded,
+                    size: 20,
+                  ),
+                  onPressed: ses.sessizeAl,
+                ),
+              IconButton(
+                tooltip: ses.acik ? 'Bitir' : 'Kapat',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close_rounded, size: 20),
+                onPressed: () {
+                  if (ses.acik) {
+                    ses.bitir();
+                  } else {
+                    ses.hatayiKapat();
+                  }
+                },
+              ),
+            ],
+          ),
+          if (ses.hata != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, right: 8),
+              child: Text(
+                ses.hata!,
+                style: t.bodySmall?.copyWith(color: r.error),
+              ),
+            ),
+          for (final satir in son)
+            if (satir.metin.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, right: 8),
+                child: Text(
+                  satir.metin.trim(),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.bodyMedium?.copyWith(
+                    color: satir.kullanici ? r.onSurfaceVariant : r.onSurface,
+                    fontStyle: satir.kullanici ? FontStyle.italic : null,
+                  ),
+                ),
+              ),
+          if (ses.acik && son.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Konuşabilirsin. "Kapat" deyince biter; onayları ekrandan verirsin.',
+                style: t.bodySmall?.copyWith(color: r.onSurfaceVariant),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

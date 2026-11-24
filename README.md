@@ -91,6 +91,12 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   GitHub'a ekleme, SSH sunucuları (ekle, dene, sil), tema.
 - **Uzak oturum:** ajan SSH ile kayıtlı bir sunucuda çalışır (`ssh … bash -lc 'cd … && exec claude …'`);
   sohbet, onaylar ve diff'ler aynı arayüzde. Uzak dosya önizleme ve Git paneli henüz yok.
+- **Sesli konuşma (Codex):** sohbetteki mikrofon düğmesi Codex'in realtime sesini açar. Ses
+  WebRTC ile doğrudan telefonla OpenAI arasında akar; köprü yalnızca SDP teklifini
+  `thread/realtime/start` ile Codex'e iletir. Konuşma sohbetin thread'ine bağlıdır: sesle istenen
+  iş Codex'e devredilir, Codex aynı projede çalışır, araçlar ve onaylar sohbette görünür (onaylar
+  dokunarak verilir). "Kapat/yeter/görüşürüz" ya da 60 sn sessizlik konuşmayı bitirir.
+  Codex'in deneysel API'sidir (`experimentalApi`); yalnızca bu cihazdaki Codex oturumlarında.
 
 ## Ekran düzenleri
 

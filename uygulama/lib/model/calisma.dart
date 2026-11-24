@@ -32,7 +32,7 @@ class Calisma extends ChangeNotifier {
 
   /// Bu uygulamanın beklediği en düşük köprü sürümü. Köprüye yeni bir işlem
   /// eklenince artırılır; telefondaki köprü daha eskiyse güncelleme önerilir.
-  static const gerekenKopruSurumu = '0.8.0';
+  static const gerekenKopruSurumu = '0.9.0';
   String? kopruSurumu;
   bool kopruGuncelleniyor = false;
   KurulumSunucusu? _kurulumSunucusu;

@@ -73,6 +73,11 @@ set_target_properties(${BINARY_NAME}
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
+# flutter_webrtc yeni clang uyarısına takılıyor (-Werror); yalnız onda kapat.
+if(TARGET flutter_webrtc_plugin)
+  target_compile_options(flutter_webrtc_plugin PRIVATE
+    -Wno-unknown-warning-option -Wno-unused-but-set-global)
+endif()
 
 
 # === Installation ===
