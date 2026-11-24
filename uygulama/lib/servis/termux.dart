@@ -16,48 +16,66 @@ abstract final class Termux {
   static const githubAdresi =
       'https://github.com/termux/termux-app/releases/latest';
 
+  /// Geliştirme: masaüstünde ya da web'de Termux'a özgü arayüzleri göstermek için
+  /// `--dart-define=ATOLYE_TERMUX_DENE=true`. Android kanalı olmadığı için
+  /// çağrılar sessizce "yok" döner; köprü işlemleri (kurulum, giriş) yine çalışır.
+  static const _dene = bool.fromEnvironment('ATOLYE_TERMUX_DENE');
+
   static bool get destekleniyor =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+      _dene || (!kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+
+  /// Kanal çağrısı; kanal yoksa (Android dışı) null döner.
+  static Future<T?> _cagir<T>(String yontem, [Object? args]) async {
+    try {
+      return await _kanal.invokeMethod<T>(yontem, args);
+    } on MissingPluginException {
+      return null;
+    }
+  }
 
   static Future<bool> kurulu() async {
     if (!destekleniyor) return false;
-    return await _kanal.invokeMethod<bool>('kurulu') ?? false;
+    return await _cagir<bool>('kurulu') ?? false;
   }
 
   /// Termux'u ön plana getirir.
   static Future<void> ac() async {
-    if (destekleniyor) await _kanal.invokeMethod('ac');
+    if (destekleniyor) await _cagir<void>('ac');
   }
 
   static Future<bool> komutIzniVar() async {
     if (!destekleniyor) return false;
-    return await _kanal.invokeMethod<bool>('izinVar') ?? false;
+    return await _cagir<bool>('izinVar') ?? false;
   }
 
   static Future<bool> komutIzniIste() async {
     if (!destekleniyor) return false;
-    return await _kanal.invokeMethod<bool>('izinIste') ?? false;
+    return await _cagir<bool>('izinIste') ?? false;
   }
 
   /// Cihazın desteklediği işlemci mimarileri, en uygunu önce.
   static Future<List<String>> abiler() async {
     if (!destekleniyor) return const [];
-    return ((await _kanal.invokeMethod<List>('abiler')) ?? const [])
-        .cast<String>();
+    return ((await _cagir<List>('abiler')) ?? const []).cast<String>();
   }
 
   /// Atölye'nin başka uygulama kurdurma izni (Bilinmeyen uygulamalar) var mı.
   static Future<bool> kurulumIzniVar() async {
     if (!destekleniyor) return false;
-    return await _kanal.invokeMethod<bool>('kurulumIzniVar') ?? false;
+    return await _cagir<bool>('kurulumIzniVar') ?? false;
   }
 
   /// Sistem ayarlarında bu izni verme ekranını açar.
-  static Future<void> kurulumIzniAc() => _kanal.invokeMethod('kurulumIzniAc');
+  static Future<void> kurulumIzniAc() => _cagir<void>('kurulumIzniAc');
+
+  /// Termux'un "Uygulama bilgisi" ekranını açar (pil kısıtlamasını kaldırmak için).
+  static Future<void> termuxAyarlariniAc() async {
+    if (destekleniyor) await _cagir<void>('termuxAyarlari');
+  }
 
   /// İndirilmiş APK için Android'in yükleme ekranını açar.
   static Future<void> apkKur(String yol) =>
-      _kanal.invokeMethod('apkKur', {'yol': yol});
+      _cagir<void>('apkKur', {'yol': yol});
 
   /// Termux'ta bir komut çalıştırır. [arkaPlan] ise terminal açılmaz;
   /// değilse Termux'ta yeni bir oturum açılır (giriş adımları için).
@@ -68,7 +86,7 @@ abstract final class Termux {
     String? klasor,
   }) async {
     if (!destekleniyor) return;
-    await _kanal.invokeMethod('calistir', {
+    await _cagir<void>('calistir', {
       'yol': yol,
       'args': args,
       'arkaPlan': arkaPlan,
@@ -116,6 +134,5 @@ abstract final class Termux {
       ajan == 'codex' ? 'codex login --device-auth' : 'claude';
 
   /// Bir ajanın kendi giriş akışını Termux'ta açar.
-  static Future<bool> girisAc(String ajan) =>
-      terminaldeAc(girisKomutu(ajan));
+  static Future<bool> girisAc(String ajan) => terminaldeAc(girisKomutu(ajan));
 }

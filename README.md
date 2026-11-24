@@ -44,18 +44,37 @@ açılınca geçmiş buradan gelir. Dosyalar aynı porttan `GET /dosya?yol=…&t
 
 ## Kurulum akışı (telefonda)
 
+Kullanıcı Termux'a **yalnızca bir kez, kısa tek bir satır** yapıştırır; kurulumun geri kalanı ve
+girişler Atölye'nin içinde, Termux açılmadan yürür.
+
 1. Kullanıcı ajanları seçer, kurulacaklar listelenir, onay alınır.
 2. Termux yoksa Atölye resmi GitHub sürümünden cihazın mimarisine uygun APK'yı indirir,
    sürümle yayımlanan SHA-256 özetiyle doğrular ve Android'in yükleme ekranını açar
    ("Bilinmeyen uygulamaları yükle" izni bir kez istenir). Kurulum bitince Atölye Termux'u
    algılayıp sonraki adıma kendisi geçer. İstenirse F-Droid sürümü de kurulabilir.
-3. Atölye `kur.sh` ve köprüyü telefonun içinden (127.0.0.1, rastgele port ve yol) sunar; tek satırlık
-   komutu panoya kopyalar ve Termux'u açar. Kullanıcı yapıştırır, kurulum biter, köprü başlar.
-4. `RUN_COMMAND` izni istenir (köprüyü yeniden başlatmak ve giriş ekranlarını açmak için).
-5. Giriş: Termux'ta `claude` ya da `codex login --device-auth` açılır.
+3. **Önyükleme (Termux'ta, tek yapıştırma).** Atölye `kur.sh` ve köprüyü telefonun içinden
+   (127.0.0.1, rastgele port ve yol) sunar; panoya `curl -fsS http://127.0.0.1:PORT/GIZLI | bash`
+   kopyalar ve Termux'u açar. Sunucu betiğin başına token ve ajan seçimini gömer. Betik köprüyü
+   ve rehberi hemen indirir (uygulama arka plana düşse de), `allow-external-apps = true` yazar,
+   depoları günceller, Python'u kurar, köprüyü başlatır ve `am start` ile Atölye'ye geri döner.
+4. **Paketler ve ajanlar (uygulamada, canlı).** Uygulama `kur` işlemiyle betiği köprüye gönderir
+   (`--asama paketler`); köprü onu çocuk süreç olarak çalıştırır ve çıktıyı `kurulum` olaylarıyla
+   akıtır: adımlar, ilerleme, hata. Node.js, Git, GitHub CLI, OpenSSH ve seçilen ajanlar kurulur;
+   Claude Code resmi linux paketi + Termux glibc ile, Codex Termux paketiyle. Eksik yoksa adım atlanır.
+5. İzinler: `RUN_COMMAND` (köprü kapanırsa Atölye açabilsin) ve Termux için pil kısıtlamasını kaldırma.
+6. **Giriş (uygulamada).** `giris_baslat` işlemi CLI'ın giriş komutunu köprüde çalıştırır
+   (`claude auth login`, `codex login --device-auth`, `gh auth login --web`); adres ve cihaz kodu
+   `giris` olaylarıyla gelir, uygulama tarayıcıyı açar, kodu panoya kopyalar. Claude bir kod isterse
+   uygulamadaki kutudan `giris_kod` ile gönderilir. Kimlik bilgilerine Atölye dokunmaz.
 
-Termux'a dışarıdan komut gönderilebilmesi için `allow-external-apps = true` gerekir; bunu kurulum
-scripti yapar. Bu yüzden ilk adımdaki tek yapıştırma kaçınılmazdır.
+Sonradan ajan kurmak/güncellemek, köprüyü güncellemek (`kopru_guncelle`: uygulamadaki köprü dosyasını
+köprü kendisi yazıp yeniden başlar) ve girişi yenilemek Ayarlar'dan aynı işlemlerle yapılır. Köprü
+bir işlemi bilmiyorsa (`durum` yanıtındaki `yetenekler` listesinde yoksa) uygulama eski yola, Termux
+penceresine düşer.
+
+Termux'a dışarıdan komut gönderilebilmesi için `allow-external-apps = true` gerekir ve bu dosyayı
+yalnızca Termux'un içinden yazmak mümkündür; ilk yapıştırma bu yüzden kaçınılmazdır. Bu, Termux'un
+bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
 
 ## Neler yapılabiliyor
 
@@ -68,7 +87,7 @@ scripti yapar. Bu yüzden ilk adımdaki tek yapıştırma kaçınılmazdır.
   başka bir uygulamada açılabilir ya da paylaşılabilir.
 - **Git:** dal, ileri/geri, değişen dosyalar ve diff'leri, commit (ya da "ajana yaptır"),
   push/pull, GitHub'da PR (gh).
-- **Ayarlar:** GitHub girişi (gh, Termux'ta tarayıcıyla), SSH anahtarı oluşturma/kopyalama ve
+- **Ayarlar:** ajanlar (kur, güncelle, giriş), GitHub girişi (uygulama içinde), SSH anahtarı oluşturma/kopyalama ve
   GitHub'a ekleme, SSH sunucuları (ekle, dene, sil), tema.
 - **Uzak oturum:** ajan SSH ile kayıtlı bir sunucuda çalışır (`ssh … bash -lc 'cd … && exec claude …'`);
   sohbet, onaylar ve diff'ler aynı arayüzde. Uzak dosya önizleme ve Git paneli henüz yok.
@@ -99,7 +118,10 @@ python3 kopru/atolye_kopru.py --token-goster
 python3 kopru/atolye_kopru.py
 ```
 
-Android dışında uygulama "Elle bağlan" ekranını açar: port ve anahtar girilir.
+Android dışında uygulama "Elle bağlan" ekranını açar: port ve anahtar girilir. Termux'a özgü
+arayüzleri (kurulum paneli, ajan kur/güncelle) masaüstünde görmek için
+`flutter build web --dart-define=ATOLYE_TERMUX_DENE=true`; köprüyü de sahte bir `PREFIX`, sahte
+`pkg`/`apt-get` betikleri ve geçici `HOME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR` ile başlat.
 
 `kopru/` altındaki dosyalar değişince uygulamanın kurulum varlıklarını eşitle (test bunu denetler):
 

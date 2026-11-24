@@ -7,6 +7,7 @@ import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
 import '../servis/termux.dart';
 import 'klonla_penceresi.dart';
+import 'kurulum_paneli.dart';
 
 /// Oturum seçili değilken açılan ekran: proje ve ajan seçilir, ilk mesaj
 /// yazılır, gönderince oturum açılır ve iş başlar. Altında projeler ve
@@ -152,20 +153,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
     }
   }
 
-  Future<void> _ajanKur(String ajan) async {
-    final acildi = await c.kurulumuYenile(ajanlar: [ajan]);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 6),
-        content: Text(
-          acildi
-              ? '${ajanAdi(ajan)} kurulumu Termux\'ta başladı. Bitince Atölye\'ye dön.'
-              : 'Kurulum komutu kopyalandı: Termux\'ta uzun bas → Paste → Enter.',
-        ),
-      ),
-    );
-  }
+  Future<void> _ajanKur(String ajan) => ajanKur(context, c, ajan);
 
   Future<void> _yeniProje() async {
     final ad = TextEditingController();

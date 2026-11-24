@@ -42,6 +42,19 @@ class MainActivity : FlutterActivity() {
                     }
                     "izinVar" -> result.success(izinVar())
                     "abiler" -> result.success(Build.SUPPORTED_ABIS.toList())
+                    "termuxAyarlari" -> {
+                        try {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:$termux"),
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("acilamadi", e.message, null)
+                        }
+                    }
                     "kurulumIzniVar" -> result.success(
                         Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
                             packageManager.canRequestPackageInstalls()

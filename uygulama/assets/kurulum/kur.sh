@@ -1,28 +1,33 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Atölye kurulumu — Termux içinde çalışır.
 #
-# Uygulama bu scripti telefonun kendi içinden (127.0.0.1) sunar; kullanıcı
-# Termux'a tek satırı yapıştırır:
-#   pkg install -y curl && curl -fsS http://127.0.0.1:PORT/ANAHTAR/kur.sh | bash -s -- --token T --ajan claude,codex
+# İki aşama vardır:
 #
-# Yaptıkları (her biri ekranda yazılır):
-#   1. Termux paketleri: python, nodejs, git
-#   2. Codex Termux paket deposundan,
-#      Claude Code resmi linux paketi + Termux glibc deposuyla
-#   3. Atölye köprüsü (~/.atolye/kopru) ve "atolye-kopru" komutu
-#   4. Uygulamanın Termux'a komut gönderebilmesi için allow-external-apps
-# Hiçbir hesap bilgisi istenmez; giriş her CLI'ın kendi akışıyla yapılır.
+#   onyukleme  Kullanıcının Termux'a tek satırla yapıştırdığı kısım: depoları günceller,
+#              Python'u kurar, köprüyü indirip başlatır, uygulamanın Termux'a komut
+#              gönderebilmesi için allow-external-apps'i açar ve Atölye'ye geri döner.
+#              Birkaç dakika sürer.
+#   paketler   Köprü başladıktan sonra uygulamanın köprü üzerinden çalıştırdığı kısım:
+#              geliştirme araçları ve seçilen ajanlar. Çıktısı uygulamada canlı görünür;
+#              kullanıcı Termux'u açmaz. Tekrar çalıştırmak güvenlidir.
+#   hepsi      İkisi art arda (elle çalıştırma, eski uygulamalarla uyum).
+#
+# Uygulama betiği telefonun kendi içinden (127.0.0.1) sunar; ilk satır:
+#   curl -fsS http://127.0.0.1:PORT/ANAHTAR | bash
+# Hiçbir hesap bilgisi istenmez; giriş her CLI'ın kendi akışıyla, tarayıcıda yapılır.
 
 set -euo pipefail
 
 KAYNAK="${ATOLYE_KAYNAK:-}"
 TOKEN=""
 AJANLAR="claude"
+ASAMA="hepsi"
 while [ $# -gt 0 ]; do
   case "$1" in
     --token) TOKEN="$2"; shift 2 ;;
     --ajan) AJANLAR="$2"; shift 2 ;;
     --kaynak) KAYNAK="$2"; shift 2 ;;
+    --asama) ASAMA="$2"; shift 2 ;;
     *) echo "bilinmeyen seçenek: $1" >&2; exit 2 ;;
   esac
 done
@@ -39,29 +44,106 @@ fi
 # Sorusuz apt: yükseltmede "yapılandırma dosyası değişti" sorusunda takılmasın.
 export DEBIAN_FRONTEND=noninteractive
 APT=(apt-get -y -o Dpkg::Options::=--force-confnew)
+KOPRU_KLASORU="$HOME/.atolye/kopru"
 
-adim "Termux depoları güncelleniyor (apt update)"
-if ! pkg update -y; then
-  uyar "depo güncellenemedi. İnternet bağlantısını kontrol et ya da 'termux-change-repo' ile başka bir ayna seç, sonra komutu yeniden çalıştır."
-  exit 1
+# Uygulama arka plana düşünce kendi sunucusu uzun süre yanıt vermeyebilir: köprü
+# ve rehber, uzun işlerden ÖNCE, ilk saniyelerde alınır.
+dosyalari_al() {
+  adim "Atölye köprüsü alınıyor"
+  mkdir -p "$KOPRU_KLASORU" "$HOME/projeler"
+  if [ -n "$KAYNAK" ]; then
+    curl -fsS "$KAYNAK/atolye_kopru.py" -o "$KOPRU_KLASORU/atolye_kopru.py.yeni"
+    mv -f "$KOPRU_KLASORU/atolye_kopru.py.yeni" "$KOPRU_KLASORU/atolye_kopru.py"
+    # ajanlara verilen Termux rehberi (paket kurma, Termux'a özgü sorunlar)
+    curl -fsS "$KAYNAK/termux_rehberi.md" -o "$KOPRU_KLASORU/termux_rehberi.md" || uyar "ajan rehberi indirilemedi"
+  elif [ -f "$(dirname "$0")/atolye_kopru.py" ]; then
+    cp "$(dirname "$0")/atolye_kopru.py" "$KOPRU_KLASORU/"
+    cp "$(dirname "$0")/termux_rehberi.md" "$KOPRU_KLASORU/" 2>/dev/null || true
+  else
+    echo "köprü dosyası bulunamadı (--kaynak verilmedi)" >&2
+    exit 1
+  fi
+  tamam "köprü dosyaları hazır"
+}
+
+dis_uygulamalara_izin() {
+  adim "Uygulamanın Termux'a komut gönderme izni"
+  mkdir -p "$HOME/.termux"
+  local props="$HOME/.termux/termux.properties"
+  touch "$props"
+  if grep -q '^\s*allow-external-apps' "$props"; then
+    sed -i 's/^\s*allow-external-apps.*/allow-external-apps = true/' "$props"
+  else
+    echo "allow-external-apps = true" >> "$props"
+  fi
+  command -v termux-reload-settings >/dev/null && termux-reload-settings || true
+  tamam "allow-external-apps = true"
+}
+
+kopruyu_baslat() {
+  cat > "$PREFIX/bin/atolye-kopru" <<'SH'
+#!/data/data/com.termux/files/usr/bin/bash
+# Atölye köprüsünü başlatır; zaten çalışıyorsa bir şey yapmaz.
+if curl -fsS -m 2 "http://127.0.0.1:${ATOLYE_PORT:-8765}/saglik" >/dev/null 2>&1; then
+  exit 0
 fi
+command -v termux-wake-lock >/dev/null && termux-wake-lock
+mkdir -p "$HOME/.atolye"
+exec python "$HOME/.atolye/kopru/atolye_kopru.py" "$@" >>"$HOME/.atolye/kopru.log" 2>&1
+SH
+  chmod +x "$PREFIX/bin/atolye-kopru"
 
-adim "Paketler yükseltiliyor (apt upgrade)"
-"${APT[@]}" full-upgrade || uyar "bazı paketler yükseltilemedi, devam ediliyor"
+  if [ -n "$TOKEN" ]; then
+    python "$KOPRU_KLASORU/atolye_kopru.py" --token "$TOKEN" --token-goster >/dev/null
+  fi
 
-# Ajanlar da paket kuracak: apt her zaman sorusuz çalışsın, kullanıcının
-# değiştirdiği yapılandırma dosyaları korunsun.
-mkdir -p "$PREFIX/etc/apt/apt.conf.d"
-cat > "$PREFIX/etc/apt/apt.conf.d/99atolye" <<'APT'
+  adim "Köprü başlatılıyor"
+  nohup atolye-kopru >/dev/null 2>&1 &
+  sleep 2
+  if curl -fsS -m 3 "http://127.0.0.1:${ATOLYE_PORT:-8765}/saglik" >/dev/null; then
+    tamam "köprü çalışıyor (127.0.0.1:${ATOLYE_PORT:-8765})"
+  else
+    uyar "köprü başlamadı: ~/.atolye/kopru.log dosyasına bakın"
+    return 1
+  fi
+}
+
+# Termux'tan Atölye'ye geri dön (bulunamazsa ya da izin verilmezse sessizce geç).
+atolyeye_don() {
+  command -v am >/dev/null 2>&1 || return 0
+  am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \
+    -f 0x10200000 -n tr.com.lifeos.atolye/.MainActivity >/dev/null 2>&1 || true
+}
+
+faz_onyukleme() {
+  dosyalari_al
+  dis_uygulamalara_izin
+
+  adim "Termux depoları güncelleniyor (apt update)"
+  if ! pkg update -y; then
+    uyar "depo güncellenemedi. İnternet bağlantısını kontrol et ya da 'termux-change-repo' ile başka bir ayna seç, sonra komutu yeniden çalıştır."
+    exit 1
+  fi
+
+  adim "Paketler yükseltiliyor (apt upgrade)"
+  "${APT[@]}" full-upgrade || uyar "bazı paketler yükseltilemedi, devam ediliyor"
+
+  # Ajanlar da paket kuracak: apt her zaman sorusuz çalışsın, kullanıcının
+  # değiştirdiği yapılandırma dosyaları korunsun.
+  mkdir -p "$PREFIX/etc/apt/apt.conf.d"
+  cat > "$PREFIX/etc/apt/apt.conf.d/99atolye" <<'APT'
 // Atölye: ajanların kurduğu paketler soru sormadan kurulsun.
 APT::Get::Assume-Yes "true";
 Dpkg::Options { "--force-confdef"; "--force-confold"; };
 APT
 
-adim "Gerekli paketler kuruluyor"
-"${APT[@]}" install python nodejs-lts git curl gh openssh
-pip install --upgrade --quiet websockets
-tamam "python $(python --version 2>&1 | cut -d' ' -f2), node $(node --version)"
+  adim "Python kuruluyor"
+  "${APT[@]}" install python curl
+  pip install --upgrade --quiet websockets
+  tamam "python $(python --version 2>&1 | cut -d' ' -f2)"
+
+  kopruyu_baslat
+}
 
 # Termux'ta Node "android" platformu görünür; npm'in ajan paketleri ise yalnız
 # linux için derlenmiş program taşır. Bu yüzden:
@@ -178,81 +260,51 @@ RC
   fi
 }
 
-IFS=',' read -ra SECILEN <<< "$AJANLAR"
-for ajan in "${SECILEN[@]}"; do
-  case "$ajan" in
-    claude)
-      adim "Claude Code kuruluyor (resmi linux paketi + Termux glibc)"
-      if claude_kur; then
-        tamam "Claude Code kuruldu"
-      else
-        uyar "Claude Code kurulamadı; yukarıdaki hataya bak. Komutu yeniden çalıştırmak güvenlidir."
-      fi
-      ;;
-    codex)
-      adim "Codex kuruluyor (Termux paketi)"
-      if codex_kur; then
-        tamam "Codex kuruldu"
-      else
-        uyar "Codex kurulamadı; yukarıdaki hataya bak. Komutu yeniden çalıştırmak güvenlidir."
-      fi
-      ;;
-    *) uyar "bilinmeyen ajan: $ajan" ;;
-  esac
-done
+faz_paketler() {
+  adim "Depo listesi tazeleniyor"
+  pkg update -y || uyar "depo listesi tazelenemedi, devam ediliyor"
 
-adim "Atölye köprüsü kuruluyor"
-mkdir -p "$HOME/.atolye/kopru" "$HOME/projeler"
-if [ -n "$KAYNAK" ]; then
-  curl -fsS "$KAYNAK/atolye_kopru.py" -o "$HOME/.atolye/kopru/atolye_kopru.py"
-  # ajanlara verilen Termux rehberi (paket kurma, Termux'a özgü sorunlar)
-  curl -fsS "$KAYNAK/termux_rehberi.md" -o "$HOME/.atolye/kopru/termux_rehberi.md" || \
-    uyar "ajan rehberi indirilemedi"
-elif [ -f "$(dirname "$0")/atolye_kopru.py" ]; then
-  cp "$(dirname "$0")/atolye_kopru.py" "$HOME/.atolye/kopru/"
-  cp "$(dirname "$0")/termux_rehberi.md" "$HOME/.atolye/kopru/" 2>/dev/null || true
-else
-  echo "köprü dosyası bulunamadı (--kaynak verilmedi)" >&2
-  exit 1
-fi
+  adim "Geliştirme araçları kuruluyor (Node.js, Git, GitHub CLI, OpenSSH)"
+  "${APT[@]}" install nodejs-lts git gh openssh
+  tamam "node $(node --version), $(git --version | cut -d' ' -f3)"
 
-cat > "$PREFIX/bin/atolye-kopru" <<'SH'
-#!/data/data/com.termux/files/usr/bin/bash
-# Atölye köprüsünü başlatır; zaten çalışıyorsa bir şey yapmaz.
-if curl -fsS -m 2 "http://127.0.0.1:${ATOLYE_PORT:-8765}/saglik" >/dev/null 2>&1; then
-  exit 0
-fi
-command -v termux-wake-lock >/dev/null && termux-wake-lock
-mkdir -p "$HOME/.atolye"
-exec python "$HOME/.atolye/kopru/atolye_kopru.py" "$@" >>"$HOME/.atolye/kopru.log" 2>&1
-SH
-chmod +x "$PREFIX/bin/atolye-kopru"
+  IFS=',' read -ra SECILEN <<< "$AJANLAR"
+  BASARISIZ=()
+  for ajan in "${SECILEN[@]}"; do
+    case "$ajan" in
+      "") ;;
+      claude)
+        adim "Claude Code kuruluyor (resmi linux paketi + Termux glibc)"
+        if claude_kur; then
+          tamam "Claude Code kuruldu"
+        else
+          uyar "Claude Code kurulamadı; yukarıdaki hataya bak. Komutu yeniden çalıştırmak güvenlidir."
+          BASARISIZ+=("claude")
+        fi
+        ;;
+      codex)
+        adim "Codex kuruluyor (Termux paketi)"
+        if codex_kur; then
+          tamam "Codex kuruldu"
+        else
+          uyar "Codex kurulamadı; yukarıdaki hataya bak. Komutu yeniden çalıştırmak güvenlidir."
+          BASARISIZ+=("codex")
+        fi
+        ;;
+      *) uyar "bilinmeyen ajan: $ajan" ;;
+    esac
+  done
+  if [ ${#BASARISIZ[@]} -gt 0 ]; then
+    uyar "kurulamayanlar: ${BASARISIZ[*]}"
+    return 3
+  fi
+}
 
-if [ -n "$TOKEN" ]; then
-  python "$HOME/.atolye/kopru/atolye_kopru.py" --token "$TOKEN" --token-goster >/dev/null
-fi
-tamam "köprü hazır: atolye-kopru"
-
-adim "Uygulamanın Termux'a komut gönderme izni"
-mkdir -p "$HOME/.termux"
-PROPS="$HOME/.termux/termux.properties"
-touch "$PROPS"
-if grep -q '^\s*allow-external-apps' "$PROPS"; then
-  sed -i 's/^\s*allow-external-apps.*/allow-external-apps = true/' "$PROPS"
-else
-  echo "allow-external-apps = true" >> "$PROPS"
-fi
-command -v termux-reload-settings >/dev/null && termux-reload-settings || true
-tamam "allow-external-apps = true"
-
-adim "Köprü başlatılıyor"
-nohup atolye-kopru >/dev/null 2>&1 &
-sleep 2
-if curl -fsS -m 3 http://127.0.0.1:8765/saglik >/dev/null; then
-  tamam "köprü çalışıyor (127.0.0.1:8765)"
-else
-  uyar "köprü başlamadı: ~/.atolye/kopru.log dosyasına bakın"
-fi
+case "$ASAMA" in
+  onyukleme) faz_onyukleme; atolyeye_don ;;
+  paketler) faz_paketler ;;
+  hepsi) faz_onyukleme; faz_paketler || SONUC=$?; atolyeye_don; exit "${SONUC:-0}" ;;
+  *) echo "bilinmeyen aşama: $ASAMA" >&2; exit 2 ;;
+esac
 
 printf '\n\033[1;32mKurulum bitti.\033[0m Atölye uygulamasına dönebilirsiniz.\n'
-printf 'Giriş için uygulamadaki "Giriş yap" adımı Termux'"'"'ta %s komutunu açacak.\n' "$AJANLAR"

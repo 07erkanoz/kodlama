@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 import '../servis/ayarlar.dart';
 import '../servis/kopru_istemci.dart';
 import '../servis/kurulum_sunucusu.dart';
 import '../servis/termux.dart';
+import 'kurulum.dart';
 import 'sohbet.dart';
 
 enum ThemeModeSecimi { sistem, acik, koyu }
@@ -30,10 +32,19 @@ class Calisma extends ChangeNotifier {
 
   /// Bu uygulamanın beklediği en düşük köprü sürümü. Köprüye yeni bir işlem
   /// eklenince artırılır; telefondaki köprü daha eskiyse güncelleme önerilir.
-  static const gerekenKopruSurumu = '0.7.0';
+  static const gerekenKopruSurumu = '0.8.0';
   String? kopruSurumu;
   bool kopruGuncelleniyor = false;
   KurulumSunucusu? _kurulumSunucusu;
+
+  /// Köprünün söylediği yetenekler ('kur', 'giris', 'kopru_guncelle'…). Eski
+  /// köprüde liste yoktur: uygulama o zaman eski yola (Termux penceresi) düşer.
+  Set<String> kopruYetenekleri = {};
+  bool yetenek(String ad) => kopruYetenekleri.contains(ad);
+
+  /// Köprüde çalışan kurulum betiği ve ajan girişi: canlı olaylarla güncellenir.
+  final kurulum = KurulumDurumu();
+  final giris = GirisDurumu();
 
   bool get kopruEski {
     final s = kopruSurumu;
@@ -99,6 +110,13 @@ class Calisma extends ChangeNotifier {
       case 'kota':
         kotalar = {...kotalar, e['ajan'] as String: e['pencereler'] as List};
         notifyListeners();
+      case 'kurulum':
+        kurulum.isle(e);
+        // Kurulum bitince ajanların kurulu/sürüm bilgisi değişmiştir.
+        if (e['tur'] == 'bitti') yenile();
+      case 'giris':
+        giris.isle(e);
+        if (e['tur'] == 'bitti') yenile();
       case 'oturum':
         final i = oturumlar.indexWhere((o) => o['id'] == e['oturum']);
         if (i >= 0) {
@@ -118,6 +136,9 @@ class Calisma extends ChangeNotifier {
     try {
       final d = await istemci.iste('durum');
       kopruSurumu = d['surum'] as String?;
+      kopruYetenekleri = ((d['yetenekler'] as List?) ?? const [])
+          .cast<String>()
+          .toSet();
       ajanlar = ((d['ajanlar'] as List?) ?? const [])
           .cast<Map>()
           .map((m) => m.cast<String, dynamic>())
@@ -209,26 +230,50 @@ class Calisma extends ChangeNotifier {
 
   Future<KurulumSunucusu> _sunucu() async {
     final s = _kurulumSunucusu ??= KurulumSunucusu();
+    s
+      ..token = ayarlar.token
+      ..ajanlar = ayarlar.ajanlar;
     await s.baslat();
     return s;
   }
 
+  /// Sihirbazın kullandığı, kurulum betiğini ve köprü dosyasını sunan yerel sunucu.
+  Future<KurulumSunucusu> kurulumSunucusu() => _sunucu();
+
+  Future<void> kurulumSunucusunuDurdur() async => _kurulumSunucusu?.durdur();
+
   /// Telefondaki köprüyü bu uygulamanın içindeki sürümle değiştirip yeniden
-  /// başlatır. Komut izni varsa arka planda, yoksa Termux'ta (kopyala-yapıştır).
+  /// başlatır. Köprü yeniyse (`kopru_guncelle` yeteneği) bunu köprünün kendisi
+  /// yapar; eskiyse Termux'a komut gönderilir (izin yoksa kopyala-yapıştır).
   /// Yeni köprüye bağlanınca true döner.
   Future<bool> kopruyuGuncelle() async {
-    if (!Termux.destekleniyor || kopruGuncelleniyor) return false;
+    if (kopruGuncelleniyor) return false;
     kopruGuncelleniyor = true;
     notifyListeners();
     try {
-      final komut = (await _sunucu()).guncellemeKomutu();
-      if (await Termux.komutIzniVar()) {
-        await Termux.calistir(
-          '${Termux.prefix}/bin/bash',
-          args: ['-lc', komut],
+      if (yetenek('kopru_guncelle')) {
+        final kopru = await rootBundle.loadString(
+          'assets/kurulum/atolye_kopru.py',
         );
+        final rehber = await rootBundle.loadString(
+          'assets/kurulum/termux_rehberi.md',
+        );
+        await istemci.iste('kopru_guncelle', {
+          'kopru': kopru,
+          'rehber': rehber,
+        });
+      } else if (Termux.destekleniyor) {
+        final komut = (await _sunucu()).guncellemeKomutu();
+        if (await Termux.komutIzniVar()) {
+          await Termux.calistir(
+            '${Termux.prefix}/bin/bash',
+            args: ['-lc', komut],
+          );
+        } else {
+          await Termux.terminaldeAc(komut);
+        }
       } else {
-        await Termux.terminaldeAc(komut);
+        return false;
       }
       // köprü kapanıp açılır; istemci kendiliğinden yeniden bağlanır
       for (var i = 0; i < 90; i++) {
@@ -243,14 +288,17 @@ class Calisma extends ChangeNotifier {
         }
       }
       return false;
+    } catch (e) {
+      hata = '$e';
+      return false;
     } finally {
       kopruGuncelleniyor = false;
       notifyListeners();
     }
   }
 
-  /// Kurulum komutunu (paketler, ajanlar, köprü) Termux'ta açar. [ajanlar]
-  /// verilirse yalnız onlar kurulur/güncellenir; sonradan ajan eklemek için.
+  /// Termux'ta kurulum komutunu açar (eski yol: köprü yenisi değilse ya da
+  /// uygulama içi kurulum çalışmazsa). [ajanlar] verilirse yalnız onlar.
   Future<bool> kurulumuYenile({List<String>? ajanlar}) async {
     final secilen = ajanlar ?? ayarlar.ajanlar;
     ayarlar.ajanlar = {...ayarlar.ajanlar, ...secilen}.toList();
@@ -259,6 +307,66 @@ class Calisma extends ChangeNotifier {
       ajanlar: secilen,
     );
     return Termux.terminaldeAc(komut);
+  }
+
+  /// Geliştirme araçlarını ve [ajanlar]ı köprü üzerinden kurar; çıktı
+  /// [kurulum]da canlı akar, Termux açılmaz. Köprü eskiyse (`kur` yeteneği
+  /// yok) Termux penceresine düşer ve false döner.
+  Future<bool> kurulumuBaslat({
+    required List<String> ajanlar,
+    String asama = 'paketler',
+  }) async {
+    if (!yetenek('kur')) {
+      await kurulumuYenile(ajanlar: ajanlar);
+      return false;
+    }
+    ayarlar.ajanlar = {...ayarlar.ajanlar, ...ajanlar}.toList();
+    final betik = await rootBundle.loadString('assets/kurulum/kur.sh');
+    kurulum.sifirla();
+    await istemci.iste('kur', {
+      'betik': betik,
+      'ajanlar': ajanlar,
+      'asama': asama,
+    });
+    return true;
+  }
+
+  Future<void> kurulumuIptalEt() async {
+    try {
+      await istemci.iste('kur_iptal');
+    } catch (_) {}
+  }
+
+  /// Ekran sonradan açıldıysa köprüdeki kurulumun şu anki durumunu al.
+  Future<void> kurulumDurumunuYukle() async {
+    if (!yetenek('kur')) return;
+    try {
+      kurulum.yukle(await istemci.iste('kur_durum'));
+    } catch (_) {}
+  }
+
+  /// Ajanın hesap girişini köprüde başlatır; adres ve kod [giris]e gelir.
+  Future<void> girisBaslat(String ajan) async {
+    giris.baslat(ajan);
+    try {
+      await istemci.iste('giris_baslat', {'ajan': ajan});
+    } catch (e) {
+      giris.basarisiz('$e');
+    }
+  }
+
+  Future<void> girisKodGonder(String kod) async {
+    try {
+      await istemci.iste('giris_kod', {'kod': kod});
+    } catch (e) {
+      giris.basarisiz('$e');
+    }
+  }
+
+  Future<void> girisIptalEt() async {
+    try {
+      await istemci.iste('giris_iptal');
+    } catch (_) {}
   }
 
   /// Seçili oturumdan çık: başlangıç ekranına dön.

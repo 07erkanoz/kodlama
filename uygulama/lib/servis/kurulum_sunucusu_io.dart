@@ -11,6 +11,12 @@ class KurulumSunucusu {
   HttpServer? _sunucu;
   final String _gizli = _rastgele();
 
+  /// Betiğe gömülen kurulum bilgisi: köprünün erişim anahtarı ve seçilen
+  /// ajanlar. Kullanıcıya uzun bir komut yapıştırtmak yerine betik bunları
+  /// kendisi taşır.
+  String token = '';
+  List<String> ajanlar = const [];
+
   int? get port => _sunucu?.port;
 
   static String _rastgele() {
@@ -25,7 +31,16 @@ class KurulumSunucusu {
     sunucu.listen((istek) async {
       final yol = istek.uri.pathSegments;
       final cevap = istek.response;
-      if (yol.length == 2 &&
+      if (yol.length == 1 && yol[0] == _gizli) {
+        // Kısa komutun indirdiği betik: ilk satırı kurulum bilgisini verir.
+        final betik = await rootBundle.loadString('assets/kurulum/kur.sh');
+        final k = 'http://127.0.0.1:$port/$_gizli';
+        cevap.headers.contentType = ContentType.text;
+        cevap.write(
+          "set -- --asama onyukleme --kaynak '$k' --token '$token' "
+          "--ajan '${ajanlar.join(',')}'\n$betik",
+        );
+      } else if (yol.length == 2 &&
           yol[0] == _gizli &&
           const {
             'kur.sh',
@@ -62,19 +77,12 @@ class KurulumSunucusu {
         "pkill -f '^python .*atolye_kopru'; sleep 1; exec atolye-kopru";
   }
 
-  /// Kullanıcının Termux'a yapıştıracağı tek satır.
-  ///
-  /// Yeni kurulmuş Termux'ta paket listesi eskidir: önce depo güncellenir ve
-  /// paketler yükseltilir, yoksa `pkg install` hata verir. Yükseltme sırasında
-  /// dpkg'nin "yapılandırma dosyası değişti" sorusunda takılmaması için
-  /// sorusuz kip ve `--force-confnew` kullanılır.
+  /// Kullanıcının Termux'a yapıştıracağı tek, kısa satır. İndirdiği betik
+  /// depoları günceller, Python'u ve köprüyü kurup başlatır, izni açar ve
+  /// Atölye'ye geri döner; geri kalan her şey uygulamanın içinde yapılır.
   String komut({required String token, required List<String> ajanlar}) {
-    final kaynak = 'http://127.0.0.1:$port/$_gizli';
-    return 'export DEBIAN_FRONTEND=noninteractive; '
-        'pkg update -y && '
-        'apt-get -y -o Dpkg::Options::=--force-confnew full-upgrade && '
-        'apt-get -y install curl && '
-        'curl -fsS $kaynak/kur.sh | '
-        'bash -s -- --kaynak $kaynak --token $token --ajan ${ajanlar.join(',')}';
+    this.token = token;
+    this.ajanlar = ajanlar;
+    return 'curl -fsS http://127.0.0.1:$port/$_gizli | bash';
   }
 }

@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../servis/termux.dart';
+import 'giris_penceresi.dart';
+import 'kurulum_paneli.dart';
 
 /// Ayarlar: GitHub hesabı, SSH anahtarı, uzak sunucular, görünüm ve bağlantı.
 /// Giriş işlemleri her aracın kendi akışıyla Termux'ta yapılır.
@@ -160,10 +162,10 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                         ? _Satir(
                             metin: 'GitHub hesabına giriş yapılmamış.',
                             dugme: FilledButton(
-                              onPressed: () => _terminalde(
-                                'gh auth login -h github.com -p https -w && gh auth setup-git',
-                                'Giriş',
-                              ),
+                              onPressed: () async {
+                                await girisPenceresi(context, c, 'gh');
+                                if (mounted) await _yukle();
+                              },
                               child: const Text('Giriş yap'),
                             ),
                           )
@@ -407,29 +409,19 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                       ],
                     ),
                   ),
+                  // Giriş köprünün çalıştığı her yerde anlamlı; kurulum betiği yalnız Termux'a özgü.
+                  if (a['kurulu'] == true)
+                    TextButton(
+                      onPressed: () =>
+                          girisPenceresi(context, c, a['ad'] as String),
+                      child: const Text('Giriş yap'),
+                    ),
                   if (termux) ...[
-                    if (a['kurulu'] == true)
-                      TextButton(
-                        onPressed: () => _terminalde(
-                          Termux.girisKomutu(a['ad'] as String),
-                          'Giriş',
-                        ),
-                        child: const Text('Giriş yap'),
-                      ),
                     const SizedBox(width: 4),
                     (a['kurulu'] == true
                         ? OutlinedButton.new
                         : FilledButton.new)(
-                      onPressed: () async {
-                        final acildi = await c.kurulumuYenile(
-                          ajanlar: [a['ad'] as String],
-                        );
-                        _bildir(
-                          acildi
-                              ? '${ajanAdi(a['ad'] as String)} kurulumu Termux\'ta başladı. Bitince buraya dön ve yenile.'
-                              : 'Kurulum komutu kopyalandı: Termux\'ta uzun bas → Paste → Enter.',
-                        );
-                      },
+                      onPressed: () => ajanKur(context, c, a['ad'] as String),
                       child: Text(a['kurulu'] == true ? 'Güncelle' : 'Kur'),
                     ),
                   ],
@@ -477,7 +469,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                       : () async {
                           final tamam = await c.kopruyuGuncelle();
                           _bildir(
-                            tamam ? 'Köprü güncellendi.' : 'Köprü güncellenemedi; "Kurulumu yeniden çalıştır"ı dene.',
+                            tamam ? 'Köprü güncellendi.' : 'Köprü güncellenemedi; "Araçları yeniden kur"u dene.',
                           );
                           await _yukle();
                         },
@@ -491,16 +483,10 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                   label: const Text('Köprüyü güncelle'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () async {
-                    final acildi = await c.kurulumuYenile();
-                    _bildir(
-                      acildi
-                          ? 'Kurulum Termux\'ta başladı; bitince buraya dön.'
-                          : 'Kurulum komutu kopyalandı: Termux\'ta uzun bas → Paste → Enter.',
-                    );
-                  },
+                  onPressed: () =>
+                      kurulumuCalistir(context, c, c.ayarlar.ajanlar),
                   icon: const Icon(Icons.restart_alt, size: 18),
-                  label: const Text('Kurulumu yeniden çalıştır'),
+                  label: const Text('Araçları yeniden kur'),
                 ),
                 TextButton(
                   onPressed: Termux.kopruyuBaslat,

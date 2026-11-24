@@ -6,10 +6,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
-import '../servis/kurulum_sunucusu.dart';
 import '../servis/termux.dart';
 import '../servis/termux_indir.dart';
 import '../servis/yerel_token.dart';
+import 'giris_penceresi.dart';
+import 'kurulum_paneli.dart';
 
 /// İlk açılış sihirbazı. Hiçbir şey kullanıcıya sorulmadan kurulmaz;
 /// her adım ne yapılacağını söyler ve onay bekler. Termux, Claude Code ve
@@ -31,13 +32,15 @@ class _KurulumEkraniState extends State<KurulumEkrani>
   final _secili = <String>{'claude'};
   bool? _termuxVar;
   bool _izinVar = false;
-  final _sunucu = KurulumSunucusu();
   final _indirici = TermuxIndirici();
   String? _apkYolu;
   bool _indiriliyor = false;
   bool _izinBekleniyor = false;
   String? _indirmeHatasi;
   String? _komut;
+  bool _paketlerBasladi = false;
+  bool _ilerledi = false;
+  String? _paketHatasi;
 
   Calisma get c => widget.calisma;
 
@@ -49,6 +52,8 @@ class _KurulumEkraniState extends State<KurulumEkrani>
       ..clear()
       ..addAll(c.ayarlar.ajanlar);
     c.istemci.durum.addListener(_baglantiDegisti);
+    c.kurulum.addListener(_kurulumDegisti);
+    c.addListener(_ciz);
     _kontrol();
   }
 
@@ -56,7 +61,9 @@ class _KurulumEkraniState extends State<KurulumEkrani>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     c.istemci.durum.removeListener(_baglantiDegisti);
-    _sunucu.durdur();
+    c.kurulum.removeListener(_kurulumDegisti);
+    c.removeListener(_ciz);
+    c.kurulumSunucusunuDurdur();
     super.dispose();
   }
 
@@ -86,7 +93,7 @@ class _KurulumEkraniState extends State<KurulumEkrani>
     }
     if (_adim == 2) c.istemci.baglan();
     // Girişten dönünce ajanların giriş durumunu tazele
-    if (_adim == 4) {
+    if (_adim == 5) {
       await c.yenile();
       if (mounted) setState(() {});
     }
@@ -140,23 +147,106 @@ class _KurulumEkraniState extends State<KurulumEkrani>
     }
   }
 
+  void _ciz() {
+    if (mounted) setState(() {});
+  }
+
   void _baglantiDegisti() {
     if (!mounted) return;
     if (c.baglanti == BaglantiDurumu.bagli && _adim == 2) {
-      _sunucu.durdur();
-      setState(() => _adim = _izinVar ? 4 : 3);
+      _paketlereGec();
     } else {
       setState(() {});
     }
   }
 
   Future<void> _kurulumaGec() async {
-    await _sunucu.baslat();
+    final sunucu = await c.kurulumSunucusu();
     setState(() {
       _adim = 2;
-      _komut = _sunucu.komut(token: c.ayarlar.token, ajanlar: _secili.toList());
+      _komut = sunucu.komut(token: c.ayarlar.token, ajanlar: _secili.toList());
     });
     c.istemci.baglan();
+  }
+
+  /// Köprü ayakta: eksik araçları ve ajanları köprü üzerinden, uygulamanın
+  /// içinde kur. Her şey zaten kuruluysa bu adım atlanır.
+  Future<void> _paketlereGec() async {
+    if (_paketlerBasladi) return;
+    _paketlerBasladi = true;
+    c.kurulumSunucusunuDurdur();
+    setState(() {
+      _adim = 3;
+      _paketHatasi = null;
+    });
+    await c.yenile();
+    if (!mounted) return;
+    try {
+      // Eski köprü kurulumu yönetemez: önce yenisini koy.
+      if (!c.yetenek('kur')) await c.kopruyuGuncelle();
+      if (!mounted) return;
+      final eksik = await _eksikAjanlar();
+      if (!mounted) return;
+      if (eksik == null) {
+        c.kurulum.sifirla();
+        _izinAdimina();
+        return;
+      }
+      if (!c.yetenek('kur')) {
+        setState(
+          () => _paketHatasi =
+              'Köprü güncellenemedi. Ayarlar → Köprü bölümünden tekrar dene.',
+        );
+        return;
+      }
+      await c.kurulumuBaslat(ajanlar: eksik);
+    } catch (e) {
+      if (mounted) setState(() => _paketHatasi = '$e');
+    }
+  }
+
+  /// Kurulması gereken ajanlar; hiçbir şey eksik değilse null.
+  Future<List<String>?> _eksikAjanlar() async {
+    final eksikAjan = [
+      for (final ad in _secili)
+        if (!c.ajanlar.any((a) => a['ad'] == ad && a['kurulu'] == true)) ad,
+    ];
+    var aracEksik = false;
+    try {
+      final r = await c.istemci.iste('araclar');
+      final liste = (r['araclar'] as List).cast<Map>();
+      for (final k in const ['node', 'git', 'gh', 'ssh']) {
+        if (!liste.any((a) => a['komut'] == k && a['surum'] != null)) {
+          aracEksik = true;
+        }
+      }
+    } catch (_) {
+      aracEksik = true;
+    }
+    return eksikAjan.isEmpty && !aracEksik ? null : eksikAjan;
+  }
+
+  void _kurulumDegisti() {
+    if (!mounted) return;
+    if (_adim == 3 &&
+        !_ilerledi &&
+        c.kurulum.basarili &&
+        c.kurulum.asama == 'paketler') {
+      _ilerledi = true;
+      Future<void>.delayed(const Duration(milliseconds: 1400), () {
+        if (mounted && _adim == 3) _izinAdimina();
+      });
+    }
+    setState(() {});
+  }
+
+  Future<void> _izinAdimina() async {
+    final izin = await Termux.komutIzniVar();
+    if (!mounted) return;
+    setState(() {
+      _izinVar = izin;
+      _adim = 4;
+    });
   }
 
   @override
@@ -191,7 +281,8 @@ class _KurulumEkraniState extends State<KurulumEkrani>
                     0 => _hosgeldin(t),
                     1 => _termux(t),
                     2 => _kurulum(t),
-                    3 => _izin(t),
+                    3 => _paketler(t),
+                    4 => _izin(t),
                     _ => _giris(t),
                   },
               ],
@@ -239,7 +330,9 @@ class _KurulumEkraniState extends State<KurulumEkrani>
                   '• Seçtiğin ajanlar, resmi npm paketlerinden\n'
                   '• Atölye köprüsü (~/.atolye): uygulamanın ajanlarla '
                   'konuşmasını sağlar, yalnızca bu telefondan (127.0.0.1) '
-                  'erişilir',
+                  'erişilir\n\n'
+                  'Termux\'a yalnızca bir kez, kısa bir komut yapıştıracaksın; '
+                  'kurulumun geri kalanı ve giriş Atölye\'nin içinde ilerler.',
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -367,10 +460,8 @@ class _KurulumEkraniState extends State<KurulumEkrani>
           '1. Aşağıdaki düğme komutu kopyalar ve Termux\'u açar.\n'
           '2. Termux\'u ilk kez açıyorsan "Installing…" yazısı bitene kadar bekle.\n'
           '3. Ekrana uzun bas → Paste (Yapıştır) → Enter.\n'
-          '4. Komut önce depoları günceller ve paketleri yükseltir (apt update / '
-          'upgrade), sonra kurulumu yapar. İlk seferde birkaç dakika sürebilir; '
-          'soru sormaz.\n'
-          '5. Kurulum bitince buraya dön; Atölye köprüyü kendisi bulur.\n\n'
+          '4. Komut depoları günceller ve köprüyü kurar; 2–4 dakika sürer, soru '
+          'sormaz. Bitince Atölye\'ye kendiliğinden döner (dönmezse sen dön).\n\n'
           'Depo hatası alırsan Termux\'ta "termux-change-repo" yazıp başka bir '
           'ayna seç, sonra komutu yeniden yapıştır.',
         ),
@@ -413,7 +504,7 @@ class _KurulumEkraniState extends State<KurulumEkrani>
                     ? 'Köprüye bağlandı.'
                     : c.baglanti == BaglantiDurumu.yetkisiz
                     ? 'Köprü çalışıyor ama anahtar eşleşmedi. Komutu yeniden çalıştır.'
-                    : 'Köprü bekleniyor…',
+                    : 'Termux\'ta kurulum sürüyor; köprü bekleniyor…',
               ),
             ),
           ],
@@ -422,58 +513,141 @@ class _KurulumEkraniState extends State<KurulumEkrani>
     );
   }
 
-  Widget _izin(ThemeData t) {
+  /// Adım 3: paketler ve ajanlar, köprü üzerinden, canlı ilerlemeyle.
+  Widget _paketler(ThemeData t) {
+    final r = t.colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Termux\'a komut gönderme izni', style: t.textTheme.titleMedium),
+        Text('Araçlar ve ajanlar', style: t.textTheme.titleMedium),
         const SizedBox(height: 8),
-        const Text(
-          'Bu izinle Atölye, köprü kapandığında onu Termux\'ta yeniden '
-          'başlatabilir ve giriş ekranlarını açabilir. İzin vermezsen köprüyü '
-          'Termux\'ta "atolye-kopru" yazarak sen başlatırsın.',
+        Text(
+          'Node.js, Git, GitHub CLI ve seçtiğin ajanlar kuruluyor. Termux\'u '
+          'açmana gerek yok; burada izleyebilirsin. İlk kurulumda yüzlerce MB '
+          'iner, birkaç dakika sürebilir.',
+          style: t.textTheme.bodyMedium?.copyWith(color: r.onSurfaceVariant),
+        ),
+        const SizedBox(height: 16),
+        if (c.kopruGuncelleniyor)
+          const Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Expanded(child: Text('Köprü güncelleniyor…')),
+            ],
+          )
+        else if (_paketHatasi != null) ...[
+          Text(_paketHatasi!, style: TextStyle(color: r.error)),
+          const SizedBox(height: 10),
+          FilledButton.tonal(
+            onPressed: () {
+              _paketlerBasladi = false;
+              _paketlereGec();
+            },
+            child: const Text('Yeniden dene'),
+          ),
+        ] else
+          KurulumPaneli(
+            calisma: c,
+            yenidenDene: () {
+              _ilerledi = false;
+              _paketlerBasladi = false;
+              _paketlereGec();
+            },
+          ),
+        const SizedBox(height: 12),
+        if (c.kurulum.basarili)
+          FilledButton(onPressed: _izinAdimina, child: const Text('Devam'))
+        else
+          TextButton(
+            onPressed: _izinAdimina,
+            child: const Text('Şimdilik geç'),
+          ),
+      ],
+    );
+  }
+
+  /// Adım 4: bir kez verilecek izinler.
+  Widget _izin(ThemeData t) {
+    final r = t.colorScheme;
+    Widget kart(IconData simge, String baslik, String aciklama, Widget son) =>
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Icon(simge, color: r.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(baslik, style: t.textTheme.titleSmall),
+                      const SizedBox(height: 2),
+                      Text(
+                        aciklama,
+                        style: t.textTheme.bodySmall?.copyWith(
+                          color: r.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                son,
+              ],
+            ),
+          ),
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('İzinler', style: t.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Text(
+          'İki küçük ayar, uygulamanın Termux\'u senin yerine yönetebilmesi için.',
+          style: t.textTheme.bodyMedium?.copyWith(color: r.onSurfaceVariant),
+        ),
+        const SizedBox(height: 12),
+        kart(
+          Icons.terminal,
+          'Termux\'a komut gönderme',
+          'Köprü kapanırsa (telefon yeniden başlayınca) Atölye onu kendisi açar.',
+          _izinVar
+              ? const Icon(Icons.check_circle, color: Color(0xFF22C55E))
+              : FilledButton.tonal(
+                  onPressed: () async {
+                    final ok = await Termux.komutIzniIste();
+                    if (mounted) setState(() => _izinVar = ok);
+                  },
+                  child: const Text('İzin ver'),
+                ),
+        ),
+        const SizedBox(height: 8),
+        kart(
+          Icons.battery_saver_outlined,
+          'Arka planda kesilmesin',
+          'Termux ayarlarında Pil → "Kısıtlama yok" seç; yoksa Android uzun '
+              'işleri öldürebilir.',
+          OutlinedButton(
+            onPressed: Termux.termuxAyarlariniAc,
+            child: const Text('Aç'),
+          ),
         ),
         const SizedBox(height: 16),
         FilledButton(
-          onPressed: () async {
-            final ok = await Termux.komutIzniIste();
-            setState(() {
-              _izinVar = ok;
-              _adim = 4;
-            });
-          },
-          child: const Text('İzin ver'),
-        ),
-        TextButton(
-          onPressed: () => setState(() => _adim = 4),
-          child: const Text('Şimdilik geç'),
+          onPressed: () => setState(() => _adim = 5),
+          child: const Text('Devam'),
         ),
       ],
     );
   }
 
-  Future<void> _girisAc(String ad) async {
-    final komut = Termux.girisKomutu(ad);
-    bool acildi;
-    try {
-      acildi = await Termux.girisAc(ad);
-    } catch (e) {
-      acildi = false;
-      await Clipboard.setData(ClipboardData(text: komut));
-    }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 6),
-        content: Text(
-          acildi
-              ? 'Termux\'ta giriş açılıyor. Açılmadıysa komut panoda: uzun bas → Paste → Enter.'
-              : '"$komut" komutu kopyalandı. Termux\'ta ekrana uzun bas → Paste → Enter.',
-        ),
-      ),
-    );
-  }
-
+  /// Adım 5: hesap girişi, uygulamanın içinde.
   Widget _giris(ThemeData t) {
     final ajanlar = {for (final a in c.ajanlar) a['ad']: a};
     return Column(
@@ -482,10 +656,10 @@ class _KurulumEkraniState extends State<KurulumEkrani>
         Text('Giriş', style: t.textTheme.titleMedium),
         const SizedBox(height: 8),
         const Text(
-          'Her ajan kendi giriş ekranını Termux\'ta açar. Tarayıcıda hesabına '
-          'gir; Claude için giriş bitince /exit yaz. Sonra buraya dön. '
-          'Daha önce giriş yaptıysan bu adımı atlayabilirsin: giriş bilgileri '
-          'Termux\'ta saklanır, uygulama yeniden kurulsa da kaybolmaz.',
+          'Hesabına tarayıcıda giriş yaparsın; Termux açılmaz. Atölye şifreni '
+          'ya da anahtarlarını görmez. Daha önce giriş yaptıysan bu adımı '
+          'atlayabilirsin: giriş bilgileri Termux\'ta saklanır, uygulama yeniden '
+          'kurulsa da kaybolmaz.',
         ),
         const SizedBox(height: 12),
         for (final ad in _secili)
@@ -497,18 +671,20 @@ class _KurulumEkraniState extends State<KurulumEkrani>
               title: Text(ad == 'claude' ? 'Claude Code' : 'Codex'),
               subtitle: Text(
                 ajanlar[ad]?['kurulu'] != true
-                    ? 'kurulu görünmüyor — Termux\'taki çıktıya bak'
+                    ? 'kurulu görünmüyor — bir önceki adımda hata olmuş olabilir'
                     : ajanlar[ad]?['giris'] == true
                     ? 'Giriş yapılmış · ${ajanlar[ad]?['surum'] ?? ''}'
                     : (ajanlar[ad]?['surum'] as String? ?? 'kurulu'),
               ),
               trailing: ajanlar[ad]?['giris'] == true
                   ? TextButton(
-                      onPressed: () => _girisAc(ad),
+                      onPressed: () => girisPenceresi(context, c, ad),
                       child: const Text('Yeniden'),
                     )
                   : FilledButton.tonal(
-                      onPressed: () => _girisAc(ad),
+                      onPressed: ajanlar[ad]?['kurulu'] == true
+                          ? () => girisPenceresi(context, c, ad)
+                          : null,
                       child: const Text('Giriş yap'),
                     ),
             ),
@@ -535,7 +711,7 @@ class _AdimCubugu extends StatelessWidget {
     final renk = Theme.of(context).colorScheme;
     return Row(
       children: [
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 6; i++)
           Expanded(
             child: Container(
               height: 4,

@@ -11,6 +11,12 @@ const monospace = TextStyle(
 
 String ajanAdi(String ajan) => ajan == 'claude' ? 'Claude Code' : 'Codex';
 
+/// Giriş penceresinde hesabın adı: ajanlar ve GitHub.
+String girisAdi(String ad) => switch (ad) {
+  'gh' => 'GitHub',
+  _ => ajanAdi(ad),
+};
+
 /// "az önce", "5 dk", "3 sa", "dün", "12 Kas".
 String goreliZaman(num? saniye) {
   if (saniye == null) return '';

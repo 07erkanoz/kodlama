@@ -18,6 +18,7 @@ Dosyalar (resim, PDF…) aynı porttan HTTP ile: GET /dosya?yol=…&t=<token>.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import asyncio
 import base64
 import csv
@@ -44,7 +45,10 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.7.1"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.8.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+# Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
+# eski köprüde eski yola (Termux penceresi) düşer.
+YETENEKLER = ["kur", "giris", "kopru_guncelle"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -331,6 +335,45 @@ def belge_oku(yol: Path) -> dict:
     if u in (".csv", ".tsv"):
         return {"tur": "tablo", "sayfalar": csv_tablo(yol)}
     raise ValueError(f"bu belge türü çevrilemiyor: {u}")
+
+
+# ---------------------------------------------------------------- kurulum ve giriş
+#
+# Kurulum betiği (kur.sh) ve ajanların giriş akışları köprünün çocuk süreci olarak
+# çalışır; çıktıları satır satır uygulamaya olay olarak akar. Kullanıcı Termux'u
+# açmak zorunda kalmaz. Giriş bilgilerine köprü dokunmaz: adres ve kod gösterilir,
+# hesaba giriş tarayıcıda kullanıcı tarafından yapılır.
+
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+URL = re.compile(r"https://[^\s\x1b<>\"']+")
+# Codex kodu tek başına bir satırda yazar; GitHub CLI "one-time code: XXXX-XXXX" der.
+CIHAZ_KODU = re.compile(r"^\s*([A-Z0-9]{4,6}-[A-Z0-9]{4,6})\s*$")
+CIHAZ_KODU_SATIRDA = re.compile(r"one-time code:?\s*([A-Z0-9]{4,6}-[A-Z0-9]{4,6})", re.I)
+GIRIS_KOMUT = {
+    "claude": ["claude", "auth", "login"],
+    "codex": ["codex", "login", "--device-auth"],
+    # etkileşimsiz kipte adres ve kodu yazdırıp bekler; Enter istemez
+    "gh": ["gh", "auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web",
+           "--skip-ssh-key"],
+}
+GIRIS_SURESI = 15 * 60
+
+
+def temiz(s: str) -> str:
+    """Terminalin göstereceği metin: renk kodları gider, satır başına dönüşlerin ilerleme
+    çubuklarından yalnız sonuncusu kalır."""
+    s = ANSI.sub("", s)
+    return s.split("\r")[-1] if "\r" in s else s
+
+
+def olay_turu(satir: str) -> str:
+    if satir.startswith("==> "):
+        return "adim"
+    if satir.startswith("✓ "):
+        return "tamam"
+    if satir.startswith("! "):
+        return "uyari"
+    return "satir"
 
 
 # ---------------------------------------------------------------- komutlar
@@ -1006,6 +1049,8 @@ class Kopru:
         self.oturumlar: dict[str, Oturum] = {}
         self.kotalar: dict[str, list] = {}
         self._codex_modelleri: tuple[float, list] | None = None
+        self._kur: dict | None = None      # çalışan ya da son biten kurulum
+        self._giris: dict | None = None    # çalışan ya da son biten giriş akışı
         (EV / "kayit").mkdir(parents=True, exist_ok=True)
         KOK.mkdir(parents=True, exist_ok=True)
         self._yukle()
@@ -1062,6 +1107,180 @@ class Kopru:
         self.yayinla({"ev": "kota", "ajan": ajan, "pencereler": pencereler})
 
     # --- istekler
+
+    # --- kurulum betiği
+
+    async def kur_baslat(self, betik: str, ajanlar: list[str], asama: str):
+        if self._kur and not self._kur["bitti"]:
+            raise ValueError("Bir kurulum zaten sürüyor.")
+        if asama not in ("onyukleme", "paketler", "hepsi"):
+            raise ValueError("bilinmeyen kurulum aşaması")
+        if not betik or len(betik) > 512 * 1024:
+            raise ValueError("kurulum betiği boş ya da çok büyük")
+        ajanlar = [a for a in ajanlar if a in SURUCULER]
+        EV.mkdir(parents=True, exist_ok=True)
+        dosya = EV / "kur.sh"
+        gecici = dosya.with_suffix(".yeni")
+        gecici.write_text(betik, encoding="utf-8")
+        os.chmod(gecici, 0o700)
+        gecici.replace(dosya)
+        env = {**os.environ, **KOMUT_ORTAMI, "DEBIAN_FRONTEND": "noninteractive"}
+        surec = await asyncio.create_subprocess_exec(
+            "bash", str(dosya), "--asama", asama, "--ajan", ",".join(ajanlar),
+            stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT, env=env, start_new_session=True, limit=16 * 1024 * 1024)
+        durum = {"surec": surec, "satirlar": deque(maxlen=300), "adim": "", "adimlar": [],
+                 "bitti": False, "kod": None, "ajanlar": ajanlar, "asama": asama}
+        self._kur = durum
+        self.yayinla({"ev": "kurulum", "tur": "basladi", "ajanlar": ajanlar, "asama": asama})
+        asyncio.create_task(self._kur_oku(durum))
+
+    async def _kur_oku(self, durum: dict):
+        surec = durum["surec"]
+        kalan = ""
+        while True:
+            parca = await surec.stdout.read(4096)
+            if not parca:
+                break
+            kalan += parca.decode(errors="replace")
+            *satirlar, kalan = kalan.split("\n")
+            if len(kalan) > 4000:   # satır sonu gelmeyen uzun çıktı
+                satirlar.append(kalan)
+                kalan = ""
+            for ham in satirlar:
+                satir = temiz(ham).rstrip()
+                if not satir.strip():
+                    continue
+                satir = satir[:400]
+                tur = olay_turu(satir)
+                metin = satir[4:] if tur == "adim" else satir[2:] if tur in ("tamam", "uyari") else satir
+                if tur == "adim":
+                    durum["adim"] = metin
+                    durum["adimlar"].append(metin)
+                durum["satirlar"].append({"tur": tur, "metin": metin})
+                self.yayinla({"ev": "kurulum", "tur": tur, "metin": metin})
+        kod = await surec.wait()
+        durum["bitti"], durum["kod"] = True, kod
+        self.yayinla({"ev": "kurulum", "tur": "bitti", "kod": kod, "ajanlar": durum["ajanlar"],
+                      "asama": durum["asama"]})
+
+    def kur_durum(self) -> dict:
+        d = self._kur
+        if not d:
+            return {"var": False}
+        return {"var": True, "calisiyor": not d["bitti"], "bitti": d["bitti"], "kod": d["kod"],
+                "adim": d["adim"], "adimlar": d["adimlar"][-40:], "satirlar": list(d["satirlar"])[-120:],
+                "ajanlar": d["ajanlar"], "asama": d["asama"]}
+
+    def kur_iptal(self):
+        d = self._kur
+        if d and not d["bitti"]:
+            try:
+                os.killpg(d["surec"].pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    # --- ajan girişi (tarayıcıda hesap girişi; adres ve kod uygulamaya iletilir)
+
+    async def giris_baslat(self, ajan: str):
+        if ajan not in GIRIS_KOMUT:
+            raise ValueError("bilinmeyen ajan")
+        self.giris_iptal()
+        komut = GIRIS_KOMUT[ajan]
+        yol = shutil.which(komut[0])
+        if not yol:
+            raise RuntimeError(f"{ajan} kurulu değil; önce kur.")
+        # Tarayıcıyı CLI değil uygulama açar (adres olay olarak gelir).
+        env = {**os.environ, "BROWSER": "true", "NO_COLOR": "1"}
+        surec = await asyncio.create_subprocess_exec(
+            yol, *komut[1:], stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT, env=env, start_new_session=True)
+        durum = {"surec": surec, "ajan": ajan, "url": None, "kod": None, "kod_iste": False,
+                 "bitti": False, "basarili": None, "satirlar": deque(maxlen=60)}
+        self._giris = durum
+        self.yayinla({"ev": "giris", "tur": "basladi", "ajan": ajan})
+        asyncio.create_task(self._giris_oku(durum))
+        asyncio.get_running_loop().call_later(GIRIS_SURESI, self._giris_zaman_asimi, durum)
+
+    def _giris_zaman_asimi(self, durum: dict):
+        if not durum["bitti"]:
+            durum["zaman_asimi"] = True
+            self.giris_iptal()
+
+    async def _giris_oku(self, durum: dict):
+        surec, ajan = durum["surec"], durum["ajan"]
+        tampon = ""
+        while True:
+            parca = await surec.stdout.read(2048)
+            if not parca:
+                break
+            tampon = (tampon + parca.decode(errors="replace"))[-8000:]
+            satirlar = [temiz(x).rstrip() for x in tampon.split("\n")]
+            for satir in satirlar:
+                if durum["url"] is None and (m := URL.search(satir)):
+                    durum["url"] = m.group(0).rstrip(".,)")
+                    self.yayinla({"ev": "giris", "tur": "url", "ajan": ajan, "url": durum["url"]})
+                if durum["kod"] is None and (m := CIHAZ_KODU.match(satir) or CIHAZ_KODU_SATIRDA.search(satir)):
+                    durum["kod"] = m.group(1)
+                    self.yayinla({"ev": "giris", "tur": "kod", "ajan": ajan, "kod": durum["kod"]})
+                if not durum["kod_iste"] and "paste code" in satir.lower():
+                    durum["kod_iste"] = True
+                    self.yayinla({"ev": "giris", "tur": "kod_iste", "ajan": ajan})
+        kod = await surec.wait()
+        basarili = kod == 0 and (giris_var(ajan) if ajan in ("claude", "codex") else True)
+        if basarili and ajan == "gh":
+            # git push/clone de GitHub CLI'ın kimliğini kullansın
+            await calistir(["gh", "auth", "setup-git"], sure=30)
+        durum["bitti"], durum["basarili"] = True, basarili
+        hata = None
+        if not basarili:
+            hata = "Süre doldu." if durum.get("zaman_asimi") else \
+                "İptal edildi." if durum.get("iptal") else f"Giriş tamamlanamadı (çıkış {kod})."
+        self.yayinla({"ev": "giris", "tur": "bitti", "ajan": ajan, "basarili": basarili, "hata": hata})
+
+    async def giris_kod_gonder(self, kod: str):
+        d = self._giris
+        if not d or d["bitti"] or not d["surec"].stdin:
+            raise ValueError("Çalışan bir giriş yok.")
+        kod = kod.strip()
+        if not kod or len(kod) > 2000 or "\n" in kod:
+            raise ValueError("geçersiz kod")
+        d["surec"].stdin.write((kod + "\n").encode())
+        await d["surec"].stdin.drain()
+
+    def giris_iptal(self):
+        d = self._giris
+        if d and not d["bitti"]:
+            d["iptal"] = True
+            try:
+                os.killpg(d["surec"].pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def giris_durum(self) -> dict:
+        d = self._giris
+        if not d:
+            return {"var": False}
+        return {"var": True, "ajan": d["ajan"], "calisiyor": not d["bitti"], "url": d["url"], "kod": d["kod"],
+                "kod_iste": d["kod_iste"], "basarili": d["basarili"]}
+
+    # --- köprünün kendini güncellemesi
+
+    def kopru_yaz(self, kopru: str, rehber: str | None):
+        if any(o.durum == "calisiyor" for o in self.oturumlar.values()):
+            raise ValueError("Bir ajan çalışıyor; bitince güncelle.")
+        if "SURUM" not in kopru or "def main" not in kopru:
+            raise ValueError("geçersiz köprü dosyası")
+        compile(kopru, "atolye_kopru.py", "exec")     # sözdizimi hatası varsa dosyaya dokunma
+        yol = Path(__file__).resolve()
+        gecici = yol.with_suffix(".yeni")
+        gecici.write_text(kopru, encoding="utf-8")
+        gecici.replace(yol)
+        if rehber:
+            r = yol.with_name("termux_rehberi.md")
+            r.write_text(rehber, encoding="utf-8")
+        # yanıt gittikten sonra aynı komut satırıyla yeniden başla
+        asyncio.get_running_loop().call_later(0.6, lambda: os.execv(sys.executable, [sys.executable, *sys.argv]))
 
     async def modeller(self, ajan: str) -> list[dict]:
         """Seçilebilecek modeller ve her birinin effort düzeyleri."""
@@ -1211,7 +1430,8 @@ class Kopru:
         op = m.get("op")
         if op == "durum":
             return {"surum": SURUM, "kok": str(KOK.resolve()), "ajanlar": await self.ajanlar(),
-                    "kotalar": self.kotalar, "termux": "com.termux" in os.environ.get("PREFIX", "")}
+                    "kotalar": self.kotalar, "termux": "com.termux" in os.environ.get("PREFIX", ""),
+                    "yetenekler": YETENEKLER}
         if op == "projeler":
             return {"projeler": self.projeler()}
         if op == "proje_ac":
@@ -1294,6 +1514,28 @@ class Kopru:
             ozet = o.ozet()
             self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": ozet})
             return {"oturum": ozet}
+        if op == "kur":
+            await self.kur_baslat(m.get("betik") or "", list(m.get("ajanlar") or []), m.get("asama") or "paketler")
+            return {}
+        if op == "kur_durum":
+            return self.kur_durum()
+        if op == "kur_iptal":
+            self.kur_iptal()
+            return {}
+        if op == "giris_baslat":
+            await self.giris_baslat(m.get("ajan") or "")
+            return {}
+        if op == "giris_kod":
+            await self.giris_kod_gonder(m.get("kod") or "")
+            return {}
+        if op == "giris_iptal":
+            self.giris_iptal()
+            return {}
+        if op == "giris_durum":
+            return self.giris_durum()
+        if op == "kopru_guncelle":
+            self.kopru_yaz(m.get("kopru") or "", m.get("rehber"))
+            return {"yeniden": True}
         if op == "araclar":
             return await self.araclar()
         if op == "modeller":
