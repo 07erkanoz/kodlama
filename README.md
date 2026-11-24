@@ -112,6 +112,10 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   kutusuna, dosyalar ek olarak gelir. Gönderme kullanıcıdadır.
 - **Resim ekleme:** yazma kutusundaki "+" Android'de fotoğraf çekme, galeriden seçme, panodaki
   resim ve dosya seçeneklerini açar; klavyeden (Gboard panosu, GIF) yapıştırılan resimler de ek olur.
+- **Dosya düzenleyici:** metin/kod önizlemesindeki kalem düğmesi sözdizimi renkli düzenleyiciyi
+  (re_editor; satır numarası, geri al/yinele, satır kaydırma) açar. Kaydederken dosya okunduktan
+  sonra (örneğin ajan tarafından) değiştiyse sorar; köprü dosyayı geçici dosya + `os.replace`
+  ile yazar.
 
 ## Ekran düzenleri
 

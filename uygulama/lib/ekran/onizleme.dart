@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'duzenleyici.dart';
 import '../arayuz/markdown.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
@@ -535,6 +536,30 @@ class _MetinOnizlemeState extends State<_MetinOnizleme> {
           );
         }
         final metin = d['metin'] as String? ?? '';
+        final duzenle = widget.calisma.yetenek('duzenle')
+            ? Positioned(
+                right: 14,
+                bottom: 14,
+                child: FloatingActionButton.small(
+                  heroTag: null,
+                  tooltip: 'Düzenle',
+                  onPressed: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => DosyaDuzenleyici(
+                          calisma: widget.calisma,
+                          yol: widget.yol,
+                          metin: metin,
+                          mtime: (d['mtime'] as num?)?.toDouble(),
+                        ),
+                      ),
+                    );
+                    if (mounted) setState(() => _veri = _oku());
+                  },
+                  child: const Icon(Icons.edit_outlined),
+                ),
+              )
+            : null;
         if (widget.markdown && !_kaynak) {
           return Stack(
             children: [
@@ -551,12 +576,13 @@ class _MetinOnizlemeState extends State<_MetinOnizleme> {
                   icon: const Icon(Icons.code),
                 ),
               ),
+              ?duzenle,
             ],
           );
         }
         final satirlar = metin.split('\n');
         final genislik = '${satirlar.length}'.length;
-        return Scrollbar(
+        final kod = Scrollbar(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(12),
             child: SingleChildScrollView(
@@ -582,6 +608,9 @@ class _MetinOnizlemeState extends State<_MetinOnizleme> {
             ),
           ),
         );
+        return duzenle == null
+            ? kod
+            : Stack(fit: StackFit.expand, children: [kod, duzenle]);
       },
     );
   }

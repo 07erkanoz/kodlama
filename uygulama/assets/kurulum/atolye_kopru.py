@@ -49,7 +49,7 @@ from websockets.http11 import Response
 SURUM = "0.9.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -1697,15 +1697,34 @@ class Kopru:
 
     def oku(self, yol):
         p = guvenli_yol(yol)
-        boyut = p.stat().st_size
+        st = p.stat()
+        boyut = st.st_size
         tur = mimetypes.guess_type(p.name)[0] or ""
         if boyut > METIN_SINIRI:
             return {"yol": str(p), "boyut": boyut, "tur": tur, "buyuk": True}
         ham = p.read_bytes()
         try:
-            return {"yol": str(p), "boyut": boyut, "tur": tur, "metin": ham.decode("utf-8")}
+            return {"yol": str(p), "boyut": boyut, "tur": tur, "metin": ham.decode("utf-8"), "mtime": st.st_mtime}
         except UnicodeDecodeError:
             return {"yol": str(p), "boyut": boyut, "tur": tur, "ikili": True}
+
+    def yaz(self, yol: str, metin: str, once: float | None, zorla: bool = False) -> dict:
+        """Düzenleyiciden kaydet. Okunduktan sonra dosya değiştiyse (ajan da
+        yazmış olabilir) zorlanmadıkça yazmaz."""
+        p = guvenli_yol(yol)
+        if p.exists():
+            if p.is_dir():
+                raise ValueError("bu bir klasör")
+            if once is not None and not zorla and abs(p.stat().st_mtime - float(once)) > 1e-3:
+                raise RuntimeError("degisti: dosya sen düzenlerken değişti")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        gecici = p.with_name(f".{p.name}.atolye-{os.getpid()}")
+        gecici.write_text(metin, encoding="utf-8")
+        if p.exists():
+            os.chmod(gecici, p.stat().st_mode & 0o7777)
+        os.replace(gecici, p)
+        st = p.stat()
+        return {"yol": str(p), "boyut": st.st_size, "mtime": st.st_mtime}
 
     async def istek(self, ws, m: dict):
         op = m.get("op")
@@ -1838,6 +1857,8 @@ class Kopru:
             return self.listele(m.get("yol") or KOK)
         if op == "oku":
             return self.oku(m["yol"])
+        if op == "yaz":
+            return self.yaz(m["yol"], m.get("metin") or "", m.get("once"), bool(m.get("zorla")))
         if op == "belge":
             return belge_oku(guvenli_yol(m["yol"]))
 
