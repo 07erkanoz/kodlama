@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../model/calisma.dart';
+import '../servis/bildirim.dart';
 import '../servis/kopru_istemci.dart';
 import '../servis/termux.dart';
 import '../servis/termux_indir.dart';
@@ -32,6 +33,7 @@ class _KurulumEkraniState extends State<KurulumEkrani>
   final _secili = <String>{'claude'};
   bool? _termuxVar;
   bool _izinVar = false;
+  bool _bildirimIzni = false;
   final _indirici = TermuxIndirici();
   String? _apkYolu;
   bool _indiriliyor = false;
@@ -242,9 +244,11 @@ class _KurulumEkraniState extends State<KurulumEkrani>
 
   Future<void> _izinAdimina() async {
     final izin = await Termux.komutIzniVar();
+    final bildirim = await Bildirim.izinVar();
     if (!mounted) return;
     setState(() {
       _izinVar = izin;
+      _bildirimIzni = bildirim;
       _adim = 4;
     });
   }
@@ -609,7 +613,8 @@ class _KurulumEkraniState extends State<KurulumEkrani>
         Text('İzinler', style: t.textTheme.titleMedium),
         const SizedBox(height: 8),
         Text(
-          'İki küçük ayar, uygulamanın Termux\'u senin yerine yönetebilmesi için.',
+          'Birkaç küçük ayar: Atölye Termux\'u senin yerine yönetsin ve iş '
+          'bitince haber versin.',
           style: t.textTheme.bodyMedium?.copyWith(color: r.onSurfaceVariant),
         ),
         const SizedBox(height: 12),
@@ -623,6 +628,23 @@ class _KurulumEkraniState extends State<KurulumEkrani>
                   onPressed: () async {
                     final ok = await Termux.komutIzniIste();
                     if (mounted) setState(() => _izinVar = ok);
+                  },
+                  child: const Text('İzin ver'),
+                ),
+        ),
+        const SizedBox(height: 8),
+        kart(
+          Icons.notifications_outlined,
+          'Bildirimler',
+          'Ajan onay beklediğinde ya da işi bittiğinde haber verir; telefonu '
+              'cebine koyabilirsin.',
+          _bildirimIzni
+              ? const Icon(Icons.check_circle, color: Color(0xFF22C55E))
+              : FilledButton.tonal(
+                  onPressed: () async {
+                    c.ayarlar.bildirimIzniSoruldu = true;
+                    final ok = await Bildirim.izinIste();
+                    if (mounted) setState(() => _bildirimIzni = ok);
                   },
                   child: const Text('İzin ver'),
                 ),

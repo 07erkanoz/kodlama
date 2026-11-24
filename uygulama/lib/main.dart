@@ -4,6 +4,7 @@ import 'package:media_kit/media_kit.dart';
 import 'arayuz/tema.dart';
 import 'ekran/ana_ekran.dart';
 import 'ekran/kurulum_ekrani.dart';
+import 'model/bildirim_yoneticisi.dart';
 import 'model/calisma.dart';
 import 'servis/ayarlar.dart';
 
@@ -12,6 +13,8 @@ Future<void> main() async {
   MediaKit.ensureInitialized();
   final ayarlar = await Ayarlar.yukle();
   final calisma = Calisma(ayarlar);
+  // Ajan çalışırken kalıcı bildirim, onay/sonuç bildirimleri; uygulama boyunca yaşar.
+  BildirimYoneticisi(calisma);
   runApp(AtolyeUygulamasi(calisma: calisma));
 }
 

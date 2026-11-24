@@ -33,6 +33,10 @@ class Ayarlar {
   String get tema => _p.getString('tema') ?? 'sistem';
   set tema(String v) => _p.setString('tema', v);
 
+  /// Bildirim izni bir kez soruldu mu (Android 13+; reddedilirse tekrar sorulmaz).
+  bool get bildirimIzniSoruldu => _p.getBool('bildirimIzniSoruldu') ?? false;
+  set bildirimIzniSoruldu(bool v) => _p.setBool('bildirimIzniSoruldu', v);
+
   bool get kurulumBitti => _p.getBool('kurulumBitti') ?? false;
   set kurulumBitti(bool v) => _p.setBool('kurulumBitti', v);
 

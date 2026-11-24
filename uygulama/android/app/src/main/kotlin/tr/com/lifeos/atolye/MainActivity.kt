@@ -1,5 +1,6 @@
 package tr.com.lifeos.atolye
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -24,9 +25,74 @@ class MainActivity : FlutterActivity() {
     private val izin = "com.termux.permission.RUN_COMMAND"
     private val izinKodu = 4711
     private var bekleyenIzin: MethodChannel.Result? = null
+    private val bildirimIzniKodu = 4712
+    private var bekleyenBildirimIzni: MethodChannel.Result? = null
+    private var bildirimKanali: MethodChannel? = null
+
+    /** Bildirime dokunularak açıldıysa hangi oturum (Dart bir kez alır). */
+    private var acilisOturumu: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        Bildirimler.kanallariKur(this)
+        acilisOturumu = intent?.getStringExtra(Bildirimler.EK_OTURUM)
+        bildirimKanali = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "atolye/bildirim").apply {
+            setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "izinVar" -> result.success(bildirimIzniVar())
+                    "izinIste" -> {
+                        if (bildirimIzniVar()) {
+                            result.success(true)
+                        } else {
+                            bekleyenBildirimIzni?.success(false)
+                            bekleyenBildirimIzni = result
+                            ActivityCompat.requestPermissions(
+                                this@MainActivity,
+                                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                                bildirimIzniKodu,
+                            )
+                        }
+                    }
+                    "servis" -> {
+                        val niyet = Intent(this@MainActivity, AtolyeServisi::class.java)
+                        try {
+                            if (call.argument<Boolean>("calisiyor") == true) {
+                                niyet.putExtra("baslik", call.argument<String>("baslik"))
+                                niyet.putExtra("metin", call.argument<String>("metin"))
+                                niyet.putExtra("oturum", call.argument<String>("oturum"))
+                                ContextCompat.startForegroundService(this@MainActivity, niyet)
+                            } else {
+                                stopService(niyet)
+                            }
+                            result.success(null)
+                        } catch (e: Exception) {
+                            // ör. Android 12+ arka plandan ön plan servisi başlatmaya izin vermez
+                            result.error("servis", e.message, null)
+                        }
+                    }
+                    "goster" -> {
+                        Bildirimler.goster(
+                            this@MainActivity,
+                            call.argument<Int>("kimlik") ?: 100,
+                            call.argument<String>("baslik") ?: "Atölye",
+                            call.argument<String>("metin") ?: "",
+                            call.argument<String>("oturum"),
+                            call.argument<Boolean>("onemli") ?: false,
+                        )
+                        result.success(null)
+                    }
+                    "iptal" -> {
+                        Bildirimler.iptal(this@MainActivity, call.argument<Int>("kimlik") ?: 0)
+                        result.success(null)
+                    }
+                    "acilisOturumu" -> {
+                        result.success(acilisOturumu)
+                        acilisOturumu = null
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "atolye/termux")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -139,12 +205,30 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun bildirimIzniVar(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** Uygulama açıkken bildirime dokunuldu: oturumu Dart'a bildir. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val oturum = intent.getStringExtra(Bildirimler.EK_OTURUM) ?: return
+        bildirimKanali?.invokeMethod("acildi", oturum)
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == bildirimIzniKodu) {
+            bekleyenBildirimIzni?.success(
+                grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            )
+            bekleyenBildirimIzni = null
+        }
         if (requestCode == izinKodu) {
             bekleyenIzin?.success(
                 grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED

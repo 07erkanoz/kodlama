@@ -44,6 +44,11 @@ class Calisma extends ChangeNotifier {
 
   /// Köprüde çalışan kurulum betiği ve ajan girişi: canlı olaylarla güncellenir.
   final kurulum = KurulumDurumu();
+
+  /// Köprünün bütün olayları; istemci yeniden kurulsa da aynı akış.
+  final _olayAkisi = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get olaylar => _olayAkisi.stream;
+  bool _baglanmisti = false;
   final giris = GirisDurumu();
 
   bool get kopruEski {
@@ -101,11 +106,18 @@ class Calisma extends ChangeNotifier {
   }
 
   void _durumDegisti() {
-    if (baglanti == BaglantiDurumu.bagli) yenile();
+    if (baglanti == BaglantiDurumu.bagli) {
+      yenile();
+      // Bağlantı koptuysa (telefon uyudu, köprü yeniden başladı) arada kaçan
+      // olaylar açık sohbete geçmiştan geri yüklenir.
+      if (_baglanmisti) secili?.gecmisiYukle();
+      _baglanmisti = true;
+    }
     notifyListeners();
   }
 
   void _olay(Map<String, dynamic> e) {
+    _olayAkisi.add(e);
     switch (e['ev']) {
       case 'kota':
         kotalar = {...kotalar, e['ajan'] as String: e['pencereler'] as List};
@@ -169,6 +181,16 @@ class Calisma extends ChangeNotifier {
       hata = e.toString();
     }
     notifyListeners();
+  }
+
+  /// Kimliği bilinen oturumu aç (bildirime dokununca); listede yoksa önce tazele.
+  Future<void> oturumuAc(String id) async {
+    var ozet = oturumlar.where((o) => o['id'] == id).firstOrNull;
+    if (ozet == null) {
+      await yenile();
+      ozet = oturumlar.where((o) => o['id'] == id).firstOrNull;
+    }
+    if (ozet != null) await sec(ozet);
   }
 
   Future<void> sec(Map<String, dynamic> ozet) async {

@@ -6,6 +6,12 @@
     <!-- Termux'un resmi APK'sını indirip Android'in yükleme ekranını açmak için;
          kurulum yine kullanıcının onayıyla olur. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Ajan onay beklediğinde ya da işi bittiğinde haber vermek için (Android 13+ sorar). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Ajan çalışırken uygulama arka planda kapanmasın: yalnız iş sürerken açık kalan
+         ön plan servisi. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <application
         android:label="Atölye"
         android:name="${applicationName}"
@@ -34,6 +40,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".AtolyeServisi"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Telefondaki yerel yapay zekâ ajanı çalışırken uygulamanın köprü bağlantısını açık tutar ve iş bitince ya da onay gerekince bildirir." />
+        </service>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.dosyalar"
