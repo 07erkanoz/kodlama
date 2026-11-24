@@ -72,8 +72,11 @@ class BittiOge extends Oge {
 }
 
 class UyariOge extends Oge {
-  UyariOge(this.metin);
+  UyariOge(this.metin, {this.bilgi = false});
   final String metin;
+
+  /// Hata değil, bilgi notu (ör. "İşi yapan: Claude", "Cihaz: ofis").
+  final bool bilgi;
 }
 
 /// Bir oturumun sohbeti: öğeler, durum, bekleyen onaylar.
@@ -357,7 +360,9 @@ class Sohbet extends ChangeNotifier {
           BittiOge(e['hata'] as String?, (e['maliyet'] as num?)?.toDouble()),
         );
       case 'uyari':
-        ogeler.add(UyariOge(e['metin'] as String? ?? ''));
+        ogeler.add(
+          UyariOge(e['metin'] as String? ?? '', bilgi: e['bilgi'] == true),
+        );
       case 'durum':
         if (e['durum'] == 'calisiyor' && !calisiyor) turBasi = DateTime.now();
         _ozet = {..._ozet, 'durum': e['durum']};

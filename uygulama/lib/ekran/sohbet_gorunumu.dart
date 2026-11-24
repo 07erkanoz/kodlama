@@ -67,8 +67,9 @@ class _BittiBlok extends _Blok {
 }
 
 class _UyariBlok extends _Blok {
-  _UyariBlok(this.metin);
+  _UyariBlok(this.metin, {this.bilgi = false});
   final String metin;
+  final bool bilgi;
 }
 
 List<_Blok> _bloklar(List<Oge> ogeler) {
@@ -111,7 +112,7 @@ List<_Blok> _bloklar(List<Oge> ogeler) {
       case BittiOge():
         out.add(_BittiBlok(o));
       case UyariOge():
-        out.add(_UyariBlok(o.metin));
+        out.add(_UyariBlok(o.metin, bilgi: o.bilgi));
     }
   }
   return out;
@@ -244,7 +245,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         model: a.sesModeli.isEmpty ? null : a.sesModeli,
       );
       // Yankı görünümünde konuşma doğrudan tam ekran açılır.
-      if (a.sesGorunumu != 'sade') {
+      if (a.sesGorunumu != 'sade' && a.sesTamEkran) {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             fullscreenDialog: true,
@@ -414,6 +415,17 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                       )
                     : const SizedBox.shrink(),
               ),
+            if (s.yanki)
+              _sar(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 2,
+                    children: [_yankiCipi(), _cihazCipi()],
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
               child: SafeArea(
@@ -436,10 +448,8 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                       ipucu: s.calisiyor
                           ? 'Araya yaz — çalışan işe eklenir'
                           : 'Devam et…',
-                      cipler: [
-                        if (s.yanki) _cihazCipi(),
-                        if (s.yanki) _yankiCipi() else araclar.model,
-                      ],
+                      // Yankı'da modeller Yankı panelindedir; çipleri kutunun üstünde.
+                      cipler: [if (!s.yanki) araclar.model],
                       sagda: [
                         if (_sesVar)
                           ListenableBuilder(
@@ -492,7 +502,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : Icon(cihaz == null ? Icons.devices_other : Icons.dns_outlined),
-      etiket: cihaz ?? 'Cihaz yok',
+      etiket: cihaz == null ? 'Cihaz seç' : 'Cihaz: $cihaz',
       ipucu: 'Asistan hangi cihazı denetlesin',
       etkin: !s.calisiyor && !s.cihazDegisiyor,
       secili: cihaz ?? '',
@@ -559,7 +569,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     ),
     _DosyaBlok(:final dosyalar) => _Dosyalar(dosyalar: dosyalar, ac: _dosyaAc),
     _BittiBlok(:final oge) => _BittiSatiri(oge: oge),
-    _UyariBlok(:final metin) => _UyariSatiri(metin: metin),
+    _UyariBlok(:final metin, :final bilgi) => _UyariSatiri(metin: metin, bilgi: bilgi),
   };
 }
 
@@ -1349,14 +1359,37 @@ class _BittiSatiri extends StatelessWidget {
 }
 
 class _UyariSatiri extends StatelessWidget {
-  const _UyariSatiri({required this.metin});
+  const _UyariSatiri({required this.metin, this.bilgi = false});
   final String metin;
+  final bool bilgi;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: KodKutusu(metin: metin, hata: true, enFazla: 140),
-  );
+  Widget build(BuildContext context) {
+    if (!bilgi) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: KodKutusu(metin: metin, hata: true, enFazla: 140),
+      );
+    }
+    final t = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, size: 15, color: t.colorScheme.outline),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              metin,
+              style: t.textTheme.bodySmall?.copyWith(
+                color: t.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Sesli konuşma sürerken yazma kutusunun üstünde: durum, son söylenenler,

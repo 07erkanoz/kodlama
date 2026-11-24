@@ -90,6 +90,10 @@ class Ayarlar {
 
   static String? _bos(String? v) => v == null || v.isEmpty ? null : v;
 
+  /// Sesli konuşma (Yankı görünümünde) doğrudan tam ekran açılsın mı.
+  bool get sesTamEkran => _p.getBool('sesTamEkran') ?? true;
+  set sesTamEkran(bool v) => _p.setBool('sesTamEkran', v);
+
   String get sesModeli => _p.getString('sesModeli') ?? '';
   set sesModeli(String v) => _p.setString('sesModeli', v);
 

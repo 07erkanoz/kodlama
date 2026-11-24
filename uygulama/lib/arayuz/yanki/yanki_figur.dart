@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 
 import '../../model/sesli_konusma.dart';
 import 'figurler.dart';
@@ -82,11 +83,33 @@ class _YankiFiguruState extends State<YankiFiguru>
 }
 
 /// Sesli konuşmanın tam ekranı: ortada figür, altında son satırlar.
-class YankiEkrani extends StatelessWidget {
+class YankiEkrani extends StatefulWidget {
   const YankiEkrani({super.key, required this.ses, required this.gorunum});
 
   final SesliKonusma ses;
   final String gorunum;
+
+  @override
+  State<YankiEkrani> createState() => _YankiEkraniState();
+}
+
+class _YankiEkraniState extends State<YankiEkrani> {
+  SesliKonusma get ses => widget.ses;
+  String get gorunum => widget.gorunum;
+
+  @override
+  void initState() {
+    super.initState();
+    // Gerçek tam ekran: saat/bildirim ve gezinme çubukları gizlenir,
+    // kenardan kaydırınca bir an görünür.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -1728,7 +1728,7 @@ class CodexOturum(Oturum):
         await self.kapat()
         self.cihaz, self.cihaz_mcp = cihaz, mcp
         self.k.oturumlari_kaydet()
-        self.yay({"ev": "uyari", "metin": f"Cihaz: {cihaz or 'yok'}"
+        self.yay({"ev": "uyari", "bilgi": True, "metin": f"Cihaz: {cihaz or 'yok'}"
                   + (f" · araçlar: {', '.join(mcp)}" if mcp else (" · LifeOS MCP bulunamadı" if cihaz else ""))})
         return mcp
 
@@ -2599,7 +2599,7 @@ class Kopru:
                     o.yay({"ev": "ses", "tur": "kapandi", "neden": "işi yapan değişti"}, kaydet=False)
                 await o.kapat()
                 o.isci_notu = True  # eski konuşma Codex'i yanıltmasın: sonraki mesaja not düşülür
-                o.yay({"ev": "uyari", "metin": "İşi yapan: " + ("Claude" if o.isci == "claude" else "Codex")})
+                o.yay({"ev": "uyari", "bilgi": True, "metin": "İşi yapan: " + ("Claude" if o.isci == "claude" else "Codex")})
             if o.yardimci:  # yeni model bir sonraki işte; Claude sohbeti --resume ile sürer
                 await o.yardimci.kapat()
                 o.yardimci = None

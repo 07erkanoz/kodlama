@@ -134,6 +134,8 @@ class _YankiAyarlariState extends State<YankiAyarlari> {
     builder: (context, _) => _govde(context),
   );
 
+  bool _gelismis = false;
+
   Widget _govde(BuildContext context) {
     final t = Theme.of(context);
     final r = t.colorScheme;
@@ -141,29 +143,97 @@ class _YankiAyarlariState extends State<YankiAyarlari> {
     final a = c.ayarlar;
     final s = widget.secim();
     final kucuk = t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant);
+    final etkin = !_yaziyor;
 
-    Widget bolum(String ad, String? aciklama, List<Widget> icerik) => Padding(
-      padding: const EdgeInsets.only(top: 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            ad,
-            style: t.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
+    // Üç düzen: hepsi Codex, Codex konuşur Claude çalışır, ya da karışık.
+    final duzen = s.isci == 'codex' && s.yazili == 'codex'
+        ? 'codex'
+        : s.isci == 'claude' && s.yazili == 'claude'
+        ? 'claude'
+        : 'karisik';
+    final claudeVar = s.isci == 'claude' || s.yazili == 'claude';
+
+    Widget baslik(String ad) => Padding(
+      padding: const EdgeInsets.only(top: 22, bottom: 8),
+      child: Text(
+        ad,
+        style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+      ),
+    );
+
+    Widget kart(
+      String deger,
+      IconData simge,
+      String ad,
+      String aciklama,
+      VoidCallback sec,
+    ) {
+      final secili = duzen == deger;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Material(
+          color: secili ? r.secondaryContainer : r.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: etkin ? sec : null,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+              child: Row(
+                children: [
+                  Icon(
+                    simge,
+                    color: secili ? r.onSecondaryContainer : r.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ad,
+                          style: t.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(aciklama, style: kucuk),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    secili
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    color: secili ? r.primary : r.outline,
+                  ),
+                ],
+              ),
             ),
           ),
-          if (aciklama != null) ...[
-            const SizedBox(height: 2),
-            Text(aciklama, style: kucuk),
-          ],
-          const SizedBox(height: 8),
-          ...icerik,
+        ),
+      );
+    }
+
+    Widget modelSatiri(String ad, String ne, Widget cip) => Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(ad, style: t.textTheme.bodyLarge),
+                Text(ne, style: kucuk),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(child: cip),
         ],
       ),
     );
 
-    Widget ajanSecici(String deger, void Function(String) sec) =>
+    Widget ikili(String deger, void Function(String) sec) =>
         SegmentedButton<String>(
           showSelectedIcon: false,
           segments: const [
@@ -171,8 +241,15 @@ class _YankiAyarlariState extends State<YankiAyarlari> {
             ButtonSegment(value: 'claude', label: Text('Claude')),
           ],
           selected: {deger},
-          onSelectionChanged: _yaziyor ? null : (v) => sec(v.first),
+          onSelectionChanged: etkin ? (v) => sec(v.first) : null,
         );
+
+    final akis = switch (duzen) {
+      'codex' => 'Sen konuşursun → Codex dinler, işi yapar, söyler.',
+      'claude' => 'Sen konuşursun → Codex dinler → Claude yapar → Codex söyler. Yazdıkların doğrudan Claude\'a gider.',
+      _ =>
+        'Sesle istenen işi ${s.isci == 'claude' ? 'Claude' : 'Codex'}, yazdıklarını ${s.yazili == 'claude' ? 'Claude' : 'Codex'} yapar.',
+    };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -203,163 +280,218 @@ class _YankiAyarlariState extends State<YankiAyarlari> {
               child: Text(widget.altBaslik!, style: kucuk),
             ),
         ],
-        bolum(
-          'Ses ajanı',
-          'Sesin işi devrettiği Codex. Ses Codex\'in realtime sesidir; '
-              'aradaki ajan için düşük güç çoğu zaman yeter.',
-          [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: modelCipi(
-                calisma: c,
-                ajan: 'codex',
-                model: s.ajanModel,
-                effort: s.ajanEffort,
-                altBaslik: 'Yankı · ses ajanı',
-                etkin: !_yaziyor,
-                sec: (m, e) =>
-                    _degis(s.kopya(ajanModel: () => m, ajanEffort: () => e)),
-              ),
+        baslik('Kim ne yapsın'),
+        kart(
+          'codex',
+          Icons.bolt_rounded,
+          'Hepsi Codex',
+          'Codex hem konuşur hem işi yapar. En az kota.',
+          () => _degis(
+            s.kopya(
+              isci: 'codex',
+              yazili: 'codex',
+              yaziliModel: () => null,
+              yaziliEffort: () => null,
             ),
-          ],
+          ),
         ),
-        bolum(
-          'Sesle istenen işi yapan',
-          s.isci == 'claude'
-              ? 'Ses ajanı işi claude_sor aracıyla Claude\'a verir, sonucu sese aktarır.'
-              : 'Ses ajanı işi kendisi yapar; Claude çalışmaz.',
-          [
-            ajanSecici(s.isci, (v) => _degis(s.kopya(isci: v))),
-            if (s.isci == 'claude') ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: modelCipi(
-                  calisma: c,
-                  ajan: 'claude',
-                  model: s.claudeModel ?? 'opus',
-                  effort: s.claudeEffort,
-                  altBaslik: 'Yankı · işi yapan',
-                  etkin: !_yaziyor,
-                  sec: (m, e) => _degis(
-                    s.kopya(claudeModel: () => m, claudeEffort: () => e),
+        kart(
+          'claude',
+          Icons.handshake_outlined,
+          'Codex konuşur, Claude çalışır',
+          'Sesle ve yazıyla istediğin işi Claude yapar.',
+          () => _degis(
+            s.kopya(
+              isci: 'claude',
+              yazili: 'claude',
+              yaziliModel: () => null,
+              yaziliEffort: () => null,
+            ),
+          ),
+        ),
+        if (duzen == 'karisik')
+          kart(
+            'karisik',
+            Icons.tune_rounded,
+            'Karışık',
+            'Ayrıntısı Gelişmiş\'te.',
+            () => setState(() => _gelismis = true),
+          ),
+        Text(akis, style: kucuk),
+        baslik('Modeller'),
+        modelSatiri(
+          'Codex',
+          duzen == 'codex'
+              ? 'Dinler, konuşur ve işi yapar'
+              : 'Dinler ve işi Claude\'a anlatır; düşük güç yeter',
+          modelCipi(
+            calisma: c,
+            ajan: 'codex',
+            model: s.ajanModel,
+            effort: s.ajanEffort,
+            altBaslik: 'Yankı · Codex',
+            etkin: etkin,
+            sec: (m, e) =>
+                _degis(s.kopya(ajanModel: () => m, ajanEffort: () => e)),
+          ),
+        ),
+        if (claudeVar)
+          modelSatiri(
+            'Claude',
+            'İşi yapar: düzenler, üretir, araştırır',
+            modelCipi(
+              calisma: c,
+              ajan: 'claude',
+              model: s.claudeModel ?? 'opus',
+              effort: s.claudeEffort,
+              altBaslik: 'Yankı · Claude',
+              etkin: etkin,
+              sec: (m, e) =>
+                  _degis(s.kopya(claudeModel: () => m, claudeEffort: () => e)),
+            ),
+          ),
+        baslik('Ses ve görünüm'),
+        DropdownButtonFormField<String>(
+          initialValue: gecerliSes(a.sesSesi) ?? '',
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Ses'),
+          items: [
+            const DropdownMenuItem(
+              value: '',
+              child: Text('Codex\'in varsayılanı'),
+            ),
+            for (final v in codexSesleri)
+              DropdownMenuItem(
+                value: v.$1,
+                child: Text(v.$2.isEmpty ? v.$1 : '${v.$1} · ${v.$2}'),
+              ),
+          ],
+          onChanged: (v) => setState(() => a.sesSesi = v ?? ''),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          initialValue: a.sesDili,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Konuşma dili'),
+          items: const [
+            DropdownMenuItem(value: 'tr', child: Text('Türkçe')),
+            DropdownMenuItem(value: 'en', child: Text('English')),
+            DropdownMenuItem(value: '', child: Text('Benim konuştuğum dil')),
+          ],
+          onChanged: (v) => setState(() => a.sesDili = v ?? 'tr'),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          initialValue: a.sesGorunumu,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Görünüm'),
+          items: [
+            for (final (d, ad, aciklama) in sesGorunumleri)
+              DropdownMenuItem(value: d, child: Text('$ad · $aciklama')),
+          ],
+          onChanged: (v) => setState(() => a.sesGorunumu = v ?? 'yanki'),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Konuşmada tam ekran'),
+          subtitle: const Text(
+            'Mikrofona basınca Yankı ekranı açılır; saat ve gezinme çubukları gizlenir.',
+          ),
+          value: a.sesTamEkran,
+          onChanged: a.sesGorunumu == 'sade'
+              ? null
+              : (v) => setState(() => a.sesTamEkran = v),
+        ),
+        const SizedBox(height: 8),
+        Theme(
+          data: t.copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            key: ValueKey(_gelismis),
+            initiallyExpanded: _gelismis,
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: const EdgeInsets.only(bottom: 8),
+            expandedCrossAxisAlignment: CrossAxisAlignment.start,
+            title: const Text('Gelişmiş'),
+            subtitle: Text(
+              'Rolleri ayrı ayrı seç, sese durum bildirimi, ses modeli',
+              style: kucuk,
+            ),
+            children: [
+              const SizedBox(height: 4),
+              Text(
+                'Sesle istediğin işi kim yapsın',
+                style: t.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 6),
+              ikili(s.isci, (v) => _degis(s.kopya(isci: v))),
+              const SizedBox(height: 16),
+              Text(
+                'Yazdıklarını kim yanıtlasın',
+                style: t.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 6),
+              ikili(
+                s.yazili,
+                (v) => _degis(
+                  s.kopya(
+                    yazili: v,
+                    yaziliModel: () => null,
+                    yaziliEffort: () => null,
                   ),
                 ),
               ),
-            ],
-          ],
-        ),
-        bolum(
-          'Yazılı mesajlar',
-          s.yazili == 'claude'
-              ? 'Yazdıkların Codex\'e uğramadan Claude\'a gider; Claude sesle verilen işlerle aynı sohbeti sürdürür.'
-              : 'Yazdıklarını Codex yanıtlar (ses ajanıyla aynı konuşma).',
-          [
-            ajanSecici(
-              s.yazili,
-              // ajan değişince model adları değişir: model ve güç sıfırlanır
-              (v) => _degis(
-                s.kopya(
-                  yazili: v,
-                  yaziliModel: () => null,
-                  yaziliEffort: () => null,
+              const SizedBox(height: 8),
+              modelSatiri(
+                'Yazılı mesaj modeli',
+                'Boş bırakırsan yukarıdaki ${s.yazili == 'claude' ? 'Claude' : 'Codex'} modeli',
+                modelCipi(
+                  calisma: c,
+                  ajan: s.yazili,
+                  model: s.yaziliModel,
+                  effort: s.yaziliEffort,
+                  altBaslik: 'Yankı · yazılı mesajlar',
+                  etkin: etkin,
+                  sec: (m, e) => _degis(
+                    s.kopya(yaziliModel: () => m, yaziliEffort: () => e),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: modelCipi(
-                calisma: c,
-                ajan: s.yazili,
-                model: s.yaziliModel,
-                effort: s.yaziliEffort,
-                altBaslik: s.yazili == 'claude'
-                    ? 'Varsayılan: işi yapan Claude\'unki'
-                    : 'Varsayılan: ses ajanınınki',
-                etkin: !_yaziyor,
-                sec: (m, e) => _degis(
-                  s.kopya(yaziliModel: () => m, yaziliEffort: () => e),
-                ),
+              const SizedBox(height: 8),
+              Text(
+                'Ses açıkken Claude\'un durumunu söylesin',
+                style: t.textTheme.bodyMedium,
               ),
-            ),
-          ],
-        ),
-        bolum(
-          'Sese durum bildirimi',
-          'Ses açıkken Claude\'un ne yaptığı sese iletilsin mi. Her adım, konuşmayı bölebilir.',
-          [
-            SegmentedButton<String>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: 'kapali', label: Text('Kapalı')),
-                ButtonSegment(value: 'onemli', label: Text('Önemli anlar')),
-                ButtonSegment(value: 'hepsi', label: Text('Her adım')),
-              ],
-              selected: {s.durumNotu},
-              onSelectionChanged: _yaziyor
-                  ? null
-                  : (v) => _degis(s.kopya(durumNotu: v.first)),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Önemli anlar: Claude onay beklediğinde ve yazılı bir işi bitirdiğinde.',
-              style: kucuk,
-            ),
-          ],
-        ),
-        bolum('Ses', 'Bütün sesli konuşmalarda geçerli.', [
-          DropdownButtonFormField<String>(
-            initialValue: gecerliSes(a.sesSesi) ?? '',
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Ses'),
-            items: [
-              const DropdownMenuItem(
-                value: '',
-                child: Text('Codex\'in varsayılanı'),
+              const SizedBox(height: 6),
+              SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: 'kapali', label: Text('Hayır')),
+                  ButtonSegment(value: 'onemli', label: Text('Önemli anlar')),
+                  ButtonSegment(value: 'hepsi', label: Text('Her adım')),
+                ],
+                selected: {s.durumNotu},
+                onSelectionChanged: etkin
+                    ? (v) => _degis(s.kopya(durumNotu: v.first))
+                    : null,
               ),
-              for (final v in codexSesleri)
-                DropdownMenuItem(
-                  value: v.$1,
-                  child: Text(v.$2.isEmpty ? v.$1 : '${v.$1} · ${v.$2}'),
+              const SizedBox(height: 4),
+              Text(
+                'Önemli anlar: onay beklerken ve yazılı iş bitince. Her adım konuşmayı bölebilir.',
+                style: kucuk,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _sesModeli,
+                decoration: const InputDecoration(
+                  labelText: 'Ses modeli',
+                  hintText: 'Boş: Codex\'in ayarı',
+                  helperText: 'Yalnız ses için, ör. gpt-realtime.',
                 ),
+                onChanged: (v) => a.sesModeli = v.trim(),
+              ),
             ],
-            onChanged: (v) => setState(() => a.sesSesi = v ?? ''),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: a.sesDili,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Konuşma dili'),
-            items: const [
-              DropdownMenuItem(value: 'tr', child: Text('Türkçe')),
-              DropdownMenuItem(value: 'en', child: Text('English')),
-              DropdownMenuItem(value: '', child: Text('Benim konuştuğum dil')),
-            ],
-            onChanged: (v) => setState(() => a.sesDili = v ?? 'tr'),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: a.sesGorunumu,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Görünüm'),
-            items: [
-              for (final (d, ad, aciklama) in sesGorunumleri)
-                DropdownMenuItem(value: d, child: Text('$ad · $aciklama')),
-            ],
-            onChanged: (v) => setState(() => a.sesGorunumu = v ?? 'yanki'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _sesModeli,
-            decoration: const InputDecoration(
-              labelText: 'Ses modeli',
-              hintText: 'Boş: Codex\'in ayarı (config.toml)',
-              helperText: 'Yalnız ses için, ör. gpt-realtime.',
-            ),
-            onChanged: (v) => a.sesModeli = v.trim(),
-          ),
-        ]),
+        ),
       ],
     );
   }

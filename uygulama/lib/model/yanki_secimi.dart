@@ -89,7 +89,9 @@ class YankiSecimi {
   };
 
   /// Çipte görünen kısa özet.
-  String get ozet =>
-      'Yankı · iş ${isci == 'claude' ? 'Claude' : 'Codex'}'
-      '${yazili != isci ? ' · yazı ${yazili == 'claude' ? 'Claude' : 'Codex'}' : ''}';
+  String get ozet => isci == 'codex' && yazili == 'codex'
+      ? 'Yankı · Hepsi Codex'
+      : isci == 'claude' && yazili == 'claude'
+      ? 'Yankı · Claude çalışır'
+      : 'Yankı · Karışık';
 }
