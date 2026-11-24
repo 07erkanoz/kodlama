@@ -110,6 +110,8 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
 - **Paylaş menüsü:** başka bir uygulamadan metin, bağlantı, ekran görüntüsü ya da dosya
   "Atölye"ye paylaşılınca hedef sorulur (açık oturum, son oturumlar, yeni oturum); metin yazma
   kutusuna, dosyalar ek olarak gelir. Gönderme kullanıcıdadır.
+- **Resim ekleme:** yazma kutusundaki "+" Android'de fotoğraf çekme, galeriden seçme, panodaki
+  resim ve dosya seçeneklerini açar; klavyeden (Gboard panosu, GIF) yapıştırılan resimler de ek olur.
 
 ## Ekran düzenleri
 

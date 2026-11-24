@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -13,6 +14,7 @@ import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../model/sesli_konusma.dart';
 import '../model/sohbet.dart';
+import '../servis/pano.dart';
 import '../servis/yerel_dosya.dart';
 import 'canli_onizleme.dart';
 import 'onizleme.dart';
@@ -151,24 +153,9 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
       final once = _yazi.text.trim();
       _yazi.text = once.isEmpty ? p.metin.trim() : '$once\n\n${p.metin.trim()}';
     }
-    if (p.dosyalar.isEmpty) return;
-    setState(() => _ekYukleniyor = true);
-    try {
-      for (final d in p.dosyalar) {
-        final yol = await s.ekYukle(
-          d.ad,
-          base64Encode(await yerelDosyaOku(d.yol)),
-        );
-        if (mounted) setState(() => _ekler.add(yol));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Ek yüklenemedi: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _ekYukleniyor = false);
-    }
+    await _yukle([
+      for (final d in p.dosyalar) (ad: d.ad, oku: () => yerelDosyaOku(d.yol)),
+    ]);
   }
 
   /// Mesajdaki bir bağlantıya ya da dosya yoluna dokunuldu. Web adresleri
@@ -254,17 +241,16 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     }
   }
 
-  Future<void> _ekSec() async {
-    final secilen = await FilePicker.pickFiles();
-    if (secilen.isEmpty) return;
+  /// Ekleri köprüye yükler (oturum klasörüne) ve yazma kutusuna ekler.
+  Future<void> _yukle(
+    List<({String ad, Future<Uint8List> Function() oku})> dosyalar,
+  ) async {
+    if (dosyalar.isEmpty) return;
     setState(() => _ekYukleniyor = true);
     try {
-      for (final f in secilen) {
-        final yol = await s.ekYukle(
-          f.name,
-          base64Encode(await f.readAsBytes()),
-        );
-        setState(() => _ekler.add(yol));
+      for (final f in dosyalar) {
+        final yol = await s.ekYukle(f.ad, base64Encode(await f.oku()));
+        if (mounted) setState(() => _ekler.add(yol));
       }
     } catch (e) {
       if (mounted) {
@@ -275,6 +261,70 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
       if (mounted) setState(() => _ekYukleniyor = false);
     }
   }
+
+  Future<void> _dosyaSec() async {
+    final secilen = await FilePicker.pickFiles();
+    await _yukle([for (final f in secilen) (ad: f.name, oku: f.readAsBytes)]);
+  }
+
+  Future<void> _resimSec(ImageSource kaynak) async {
+    final secici = ImagePicker();
+    final resimler = kaynak == ImageSource.camera
+        ? [?await secici.pickImage(source: kaynak, imageQuality: 85)]
+        : await secici.pickMultiImage(imageQuality: 85);
+    await _yukle([for (final r in resimler) (ad: r.name, oku: r.readAsBytes)]);
+  }
+
+  Future<void> _panodanResim() async {
+    final r = await Pano.resim();
+    if (r == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Panoda resim yok.')),
+        );
+      }
+      return;
+    }
+    await _yukle([(ad: r.ad, oku: () => yerelDosyaOku(r.yol))]);
+  }
+
+  /// Android'de: dosya, kamera, galeri, pano; diğerlerinde dosya seçici.
+  Future<void> _ekSec() async {
+    if (!Pano.destekleniyor) return _dosyaSec();
+    final secim = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final (i, simge, ad) in const [
+              (0, Icons.photo_camera_outlined, 'Fotoğraf çek'),
+              (1, Icons.photo_library_outlined, 'Galeriden resim'),
+              (2, Icons.content_paste, 'Panodaki resim'),
+              (3, Icons.attach_file, 'Dosya'),
+            ])
+              ListTile(
+                leading: Icon(simge),
+                title: Text(ad),
+                onTap: () => Navigator.pop(context, i),
+              ),
+          ],
+        ),
+      ),
+    );
+    switch (secim) {
+      case 0:
+        await _resimSec(ImageSource.camera);
+      case 1:
+        await _resimSec(ImageSource.gallery);
+      case 2:
+        await _panodanResim();
+      case 3:
+        await _dosyaSec();
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -350,6 +400,8 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                       ekler: _ekler,
                       ekYukleniyor: _ekYukleniyor,
                       ekKaldir: (e) => setState(() => _ekler.remove(e)),
+                      icerikEklendi: (ad, veri) =>
+                          _yukle([(ad: ad, oku: () async => veri)]),
                       ipucu: s.calisiyor
                           ? 'Araya yaz — çalışan işe eklenir'
                           : 'Devam et…',

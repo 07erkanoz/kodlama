@@ -24,7 +24,11 @@ class MesajKutusu extends StatefulWidget {
     this.odak,
     this.otomatikOdak = false,
     this.enAzSatir = 2,
+    this.icerikEklendi,
   });
+
+  /// Klavyeden (Gboard'un panosu, çıkartma, GIF) eklenen resim.
+  final void Function(String ad, Uint8List veri)? icerikEklendi;
 
   final TextEditingController denetleyici;
   final VoidCallback gonder;
@@ -153,6 +157,19 @@ class _MesajKutusuState extends State<MesajKutusu> {
             maxLines: 12,
             textInputAction: TextInputAction.newline,
             onTapOutside: (_) => _odak.unfocus(),
+            contentInsertionConfiguration: widget.icerikEklendi == null
+                ? null
+                : ContentInsertionConfiguration(
+                    onContentInserted: (icerik) {
+                      final veri = icerik.data;
+                      if (veri == null || veri.isEmpty) return;
+                      final uzanti = icerik.mimeType.split('/').last;
+                      widget.icerikEklendi!(
+                        'klavye_${DateTime.now().millisecondsSinceEpoch}.$uzanti',
+                        veri,
+                      );
+                    },
+                  ),
             style: t.textTheme.bodyLarge?.copyWith(fontSize: 16, height: 1.45),
             decoration: InputDecoration(
               hintText: widget.ipucu,

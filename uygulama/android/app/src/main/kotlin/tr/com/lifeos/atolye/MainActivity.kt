@@ -38,6 +38,7 @@ class MainActivity : FlutterActivity() {
         Bildirimler.kanallariKur(this)
         acilisOturumu = intent?.getStringExtra(Bildirimler.EK_OTURUM)
         paylasim = Paylasim(this, flutterEngine.dartExecutor.binaryMessenger).also { it.isle(intent) }
+        Pano(this, flutterEngine.dartExecutor.binaryMessenger)
         bildirimKanali = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "atolye/bildirim").apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
