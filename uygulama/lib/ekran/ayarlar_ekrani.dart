@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../arayuz/ortak.dart';
+import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
-import '../model/sesli_konusma.dart';
 import '../servis/termux.dart';
 import 'giris_penceresi.dart';
 import 'kurulum_paneli.dart';
@@ -43,7 +43,6 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
   @override
   void dispose() {
     c.removeListener(_ciz);
-    _sesModeli.dispose();
     super.dispose();
   }
 
@@ -451,69 +450,19 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
     );
   }
 
-  late final _sesModeli = TextEditingController(text: c.ayarlar.sesModeli);
 
-  Widget _sesBolumu(ThemeData t) {
-    final a = c.ayarlar;
-    final r = t.colorScheme;
-    String etiket((String, String) v) =>
-        v.$2.isEmpty ? v.$1 : '${v.$1} · ${v.$2}';
-    return _Bolum(
-      simge: Icons.record_voice_over_outlined,
-      baslik: 'Sesli konuşma (Codex)',
-      aciklama:
-          'Sohbetteki mikrofonla açılan Codex sesinin ayarları; bir sonraki '
-          'konuşmada geçerli olur.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          DropdownButtonFormField<String>(
-            initialValue: gecerliSes(a.sesSesi) ?? '',
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Ses'),
-            items: [
-              const DropdownMenuItem(
-                value: '',
-                child: Text('Codex\'in varsayılanı'),
-              ),
-              for (final v in codexSesleri)
-                DropdownMenuItem(value: v.$1, child: Text(etiket(v))),
-            ],
-            onChanged: (v) => setState(() => a.sesSesi = v ?? ''),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Codex\'in yeni (v3) sesleri. OpenAI bunların cinsiyetini '
-            'yayımlamadı; marin dışındakileri deneyerek seç.',
-            style: t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant),
-          ),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            initialValue: a.sesDili,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: 'Konuşma dili'),
-            items: const [
-              DropdownMenuItem(value: 'tr', child: Text('Türkçe')),
-              DropdownMenuItem(value: 'en', child: Text('English')),
-              DropdownMenuItem(value: '', child: Text('Benim konuştuğum dil')),
-            ],
-            onChanged: (v) => setState(() => a.sesDili = v ?? 'tr'),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _sesModeli,
-            decoration: const InputDecoration(
-              labelText: 'Ses modeli',
-              hintText: 'Boş: Codex\'in ayarı (config.toml)',
-              helperText:
-                  'Yalnız ses için, ör. gpt-realtime. İşi yapan model sohbetin modelidir.',
-            ),
-            onChanged: (v) => a.sesModeli = v.trim(),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _sesBolumu(ThemeData t) => _Bolum(
+    simge: Icons.graphic_eq_rounded,
+    baslik: 'Yankı ve sesli konuşma',
+    aciklama:
+        'Yeni Yankı ve Asistan oturumlarının seçimleri. Bir sohbette '
+        'değiştirdiğin seçim de buraya kaydedilir.',
+    child: YankiAyarlari(
+      calisma: c,
+      secim: () => YankiSecimi.varsayilan(c.ayarlar),
+      degisti: (y) async => setState(() => y.kaydet(c.ayarlar)),
+    ),
+  );
 
   Widget _kopruBolumu(ThemeData t) {
     final r = t.colorScheme;
@@ -763,53 +712,59 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
         title: Text(s == null ? 'Sunucu ekle' : 'Sunucuyu düzenle'),
         content: SizedBox(
           width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: ad,
-                decoration: const InputDecoration(
-                  labelText: 'Ad',
-                  hintText: 'ev-sunucusu',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: host,
-                decoration: const InputDecoration(
-                  labelText: 'Adres',
-                  hintText: '192.168.1.20 ya da alan adı',
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: kullanici,
-                      decoration: const InputDecoration(labelText: 'Kullanıcı'),
-                    ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: ad,
+                  decoration: const InputDecoration(
+                    labelText: 'Ad',
+                    hintText: 'ev-sunucusu',
                   ),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: 90,
-                    child: TextField(
-                      controller: port,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Port'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: klasor,
-                decoration: const InputDecoration(
-                  labelText: 'Varsayılan klasör',
-                  hintText: '/home/kullanici/projeler',
                 ),
-              ),
-            ],
+                const SizedBox(height: 10),
+                TextField(
+                  controller: host,
+                  decoration: const InputDecoration(
+                    labelText: 'Adres',
+                    hintText: 'Sabit IP, alan adı ya da Tailscale adı',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: kullanici,
+                        decoration: const InputDecoration(
+                          labelText: 'Kullanıcı',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 90,
+                      child: TextField(
+                        controller: port,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Port'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: klasor,
+                  decoration: const InputDecoration(
+                    labelText: 'Varsayılan klasör',
+                    hintText: '/home/kullanici/projeler',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _BaglantiRehberi(anahtar: _ssh?['anahtar'] as String?),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -914,4 +869,97 @@ class _Satir extends StatelessWidget {
       ?dugme,
     ],
   );
+}
+
+/// Sunucu eklerken: telefonun o makineye nasıl ulaşacağı. Sabit IP ya da
+/// yerel ağda doğrudan SSH; evin dışından erişim için isteğe bağlı Tailscale.
+class _BaglantiRehberi extends StatelessWidget {
+  const _BaglantiRehberi({required this.anahtar});
+  final String? anahtar;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    final kucuk = t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant);
+    final ekle = anahtar == null
+        ? null
+        : "mkdir -p ~/.ssh && echo '$anahtar' >> ~/.ssh/authorized_keys";
+    Widget komut(String k) => Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+      decoration: BoxDecoration(
+        color: r.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: SelectableText(
+              k,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Kopyala',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            onPressed: () => Clipboard.setData(ClipboardData(text: k)),
+          ),
+        ],
+      ),
+    );
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+      title: const Text('Nasıl bağlanır?'),
+      subtitle: Text('SSH ya da Tailscale', style: kucuk),
+      children: [
+        Text(
+          '1. Makinede SSH sunucusu açık olmalı (LifeOS\'ta: '
+          'sudo systemctl enable --now sshd).',
+          style: kucuk,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          ekle == null
+              ? '2. Önce yukarıdan bu telefonun SSH anahtarını oluştur; sonra '
+                    'makinede onu ~/.ssh/authorized_keys dosyasına ekle.'
+              : '2. Makinede bu telefonun anahtarını ekle:',
+          style: kucuk,
+        ),
+        if (ekle != null) komut(ekle),
+        const SizedBox(height: 6),
+        Text(
+          '3. Adres: makinenin sabit IP\'si ya da alan adı. Evin dışından '
+          'ulaşılamıyorsa Tailscale kullan:',
+          style: kucuk,
+        ),
+        const SizedBox(height: 4),
+        Text('• Makinede Tailscale\'i kur ve aç:', style: kucuk),
+        komut('curl -fsSL https://tailscale.com/install.sh | sh'),
+        komut('sudo tailscale up'),
+        Text(
+          '• Telefona Play Store\'dan Tailscale uygulamasını kur, aynı hesapla '
+          'gir. Termux\'a ayrıca bir şey kurmak gerekmez: Tailscale Android\'de '
+          'VPN olarak çalışır, Termux\'un bağlantıları da onun üzerinden gider.',
+          style: kucuk,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '• Adres olarak makinenin Tailscale adını (tailscale status) ya da '
+          '100.x.y.z adresini yaz.',
+          style: kucuk,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '4. Kaydettikten sonra "Dene" ile bağlantıyı sına. Asistan\'da bu '
+          'makineyi seçince LifeOS (ve kuruluysa LifeOS Folio) araçları bağlanır.',
+          style: kucuk,
+        ),
+      ],
+    );
+  }
 }

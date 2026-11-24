@@ -3,11 +3,15 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../servis/kopru_istemci.dart';
+import 'yanki_secimi.dart';
 import 'sesli_konusma.dart';
 
 /// Sohbette görünen bir öğe. Köprünün olaylarından kurulur; geçmiş de canlı
 /// akış da aynı [Sohbet.isle] yolundan geçer.
-sealed class Oge {}
+sealed class Oge {
+  /// Öğeyi üreten ajan, oturumun ajanından farklıysa (Yankı'da Claude).
+  String? kaynak;
+}
 
 class KullaniciOge extends Oge {
   KullaniciOge(this.metin, this.ekler);
@@ -105,11 +109,84 @@ class Sohbet extends ChangeNotifier {
   String? get effort => _ozet['effort'] as String?;
   bool get calisiyor => _ozet['durum'] == 'calisiyor';
 
-  /// Bu sohbetin sesli konuşması (yalnızca bu cihazdaki Codex oturumlarında).
+  /// Projeden bağımsız Asistan oturumu (Codex konuşur, ağır işi Claude yapar).
+  bool get asistan => _ozet['asistan'] == true;
+
+  /// Yankı modu: Codex konuşur ve yönetir, işi Claude yapar (Asistan hep böyle).
+  bool get yanki => _ozet['yanki'] == true || asistan;
+
+  /// Yankı'daki Claude'un modeli ve düşünme gücü (yoksa Opus, varsayılan güç).
+  String? get claudeModel => _ozet['claude_model'] as String?;
+  String? get claudeEffort => _ozet['claude_effort'] as String?;
+
+  /// 'claude' ya da 'codex'.
+  String get isci => (_ozet['isci'] as String?) ?? 'claude';
+
+  /// Bu sohbetin Yankı seçimleri (ses ajanı oturumun kendi modelidir).
+  YankiSecimi get yankiSecimi => YankiSecimi(
+    ajanModel: model,
+    ajanEffort: effort,
+    isci: isci,
+    claudeModel: claudeModel,
+    claudeEffort: claudeEffort,
+    yazili: (_ozet['yazili'] as String?) ?? 'codex',
+    yaziliModel: _ozet['yazili_model'] as String?,
+    yaziliEffort: _ozet['yazili_effort'] as String?,
+    durumNotu: (_ozet['durum_notu'] as String?) ?? 'onemli',
+  );
+
+  /// Yankı seçimlerinden değişenleri köprüye yaz. İşi yapan değişince
+  /// Codex yeniden başlar, sohbet sürer.
+  Future<void> yankiDegistir(YankiSecimi yeni) async {
+    final eski = yankiSecimi;
+    if (yeni.ajanModel != eski.ajanModel ||
+        yeni.ajanEffort != eski.ajanEffort) {
+      await ayarla({'model': yeni.ajanModel, 'effort': yeni.ajanEffort});
+    }
+    final once = eski.kopruAlanlari();
+    final fark = {
+      for (final e in yeni.kopruAlanlari().entries)
+        if (once[e.key] != e.value) e.key: e.value,
+    };
+    if (fark.isEmpty) return;
+    final r = await istemci.iste('yanki_ayar', {'oturum': id, ...fark});
+    _ozet = (r['oturum'] as Map).cast<String, dynamic>();
+    notifyListeners();
+  }
+
+  /// Asistan'ın denetlediği kayıtlı sunucu; yoksa null.
+  String? get cihaz => _ozet['cihaz'] as String?;
+
+  /// Seçili cihazda bulunan LifeOS MCP'leri ('lifeos', 'folio').
+  List<String> get cihazAraclari =>
+      ((_ozet['cihaz_mcp'] as Map?) ?? const {}).keys.cast<String>().toList();
+
+  bool cihazDegisiyor = false;
+
+  /// Asistan'ın cihazını değiştir: köprü o makinede LifeOS ve Folio'yu arar,
+  /// bulduklarını SSH üzerinden bağlar. Sesli konuşma açıksa kapanır.
+  Future<List<String>> cihazSec(String? cihaz) async {
+    cihazDegisiyor = true;
+    notifyListeners();
+    try {
+      if (ses.acik) await ses.bitir();
+      final r = await istemci.iste('asistan_cihaz', {
+        'oturum': id,
+        'cihaz': cihaz,
+      });
+      _ozet = (r['oturum'] as Map).cast<String, dynamic>();
+      return ((r['araclar'] as List?) ?? const []).cast<String>();
+    } finally {
+      cihazDegisiyor = false;
+      notifyListeners();
+    }
+  }
+
+  /// Bu sohbetin sesli konuşması (Codex oturumlarında; uzak sunucuda da).
   SesliKonusma get ses =>
       _ses ??= SesliKonusma(istemci, id, ajanCalisiyor: () => calisiyor);
   SesliKonusma? _ses;
-  bool get sesDestekleniyor => ajan == 'codex' && sunucu == null;
+  bool get sesDestekleniyor => ajan == 'codex';
 
   /// Bu oturumda değişen ya da üretilen dosyalar, en yenisi önce.
   List<DosyaOge> get dosyalar {
@@ -146,6 +223,17 @@ class Sohbet extends ChangeNotifier {
   }
 
   void isle(Map<String, dynamic> e, {bool bildir = true}) {
+    final once = ogeler.length;
+    _isle(e);
+    if (ogeler.length > once && e['kaynak'] is String) {
+      for (final o in ogeler.skip(once)) {
+        o.kaynak = e['kaynak'] as String;
+      }
+    }
+    if (bildir) notifyListeners();
+  }
+
+  void _isle(Map<String, dynamic> e) {
     switch (e['ev']) {
       case 'kullanici':
         ogeler.add(
@@ -278,7 +366,6 @@ class Sohbet extends ChangeNotifier {
       default:
         return;
     }
-    if (bildir) notifyListeners();
   }
 
   void _dusunmeyiBitir() {
@@ -307,7 +394,11 @@ class Sohbet extends ChangeNotifier {
         case KullaniciOge():
           return (metin: 'Başlıyor', ayrinti: null, onay: false);
         default:
-          return (metin: 'Sıradaki adımı düşünüyor', ayrinti: null, onay: false);
+          return (
+            metin: 'Sıradaki adımı düşünüyor',
+            ayrinti: null,
+            onay: false,
+          );
       }
     }
     return (metin: 'Çalışıyor', ayrinti: null, onay: false);
@@ -366,8 +457,10 @@ String aracEylemi(String ad) => switch (ad) {
   'Bash' || 'Komut' => 'Komut çalıştırıyor',
   'Read' => 'Dosya okuyor',
   'Write' => 'Dosya yazıyor',
-  'Edit' || 'MultiEdit' || 'Düzenle' || 'Dosya değişikliği' =>
-    'Dosya düzenliyor',
+  'Edit' ||
+  'MultiEdit' ||
+  'Düzenle' ||
+  'Dosya değişikliği' => 'Dosya düzenliyor',
   'NotebookEdit' => 'Defteri düzenliyor',
   'Glob' => 'Dosya arıyor',
   'Grep' => 'Kodda arıyor',

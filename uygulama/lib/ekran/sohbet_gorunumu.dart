@@ -11,6 +11,8 @@ import '../arayuz/ajan_ayarlari.dart';
 import '../arayuz/markdown.dart';
 import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
+import '../arayuz/yanki/yanki_figur.dart';
+import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
 import '../model/sesli_konusma.dart';
 import '../model/sohbet.dart';
@@ -27,7 +29,12 @@ class _KullaniciBlok extends _Blok {
   final KullaniciOge oge;
 }
 
-class _AjanBasligi extends _Blok {}
+class _AjanBasligi extends _Blok {
+  _AjanBasligi([this.ajan]);
+
+  /// Oturumun ajanından farklıysa (Yankı'da Claude); yoksa oturumun ajanı.
+  final String? ajan;
+}
 
 class _MetinBlok extends _Blok {
   _MetinBlok(this.oge);
@@ -67,9 +74,15 @@ class _UyariBlok extends _Blok {
 List<_Blok> _bloklar(List<Oge> ogeler) {
   final out = <_Blok>[];
   var turBasi = true;
+  String? kaynak;
   for (final o in ogeler) {
-    if (o is! KullaniciOge && turBasi) {
-      out.add(_AjanBasligi());
+    // Yankı'da aynı turda Codex ve Claude konuşabilir: ajan değişince başlık
+    if (o is! KullaniciOge &&
+        o is! DosyaOge &&
+        o is! BittiOge &&
+        (turBasi || o.kaynak != kaynak)) {
+      out.add(_AjanBasligi(o.kaynak));
+      kaynak = o.kaynak;
       turBasi = false;
     }
     switch (o) {
@@ -193,7 +206,11 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         : '${s.cwd}/${yol.replaceFirst(RegExp(r'^\./'), '')}';
     final u = tam.split('.').last.toLowerCase();
     if ((u == 'html' || u == 'htm') && !widget.calisma.kopruEski) {
-      onizlemeAc(context, widget.calisma, widget.calisma.istemci.sayfaAdresi(tam));
+      onizlemeAc(
+        context,
+        widget.calisma,
+        widget.calisma.istemci.sayfaAdresi(tam),
+      );
       return;
     }
     if (widget.dosyaAc != null) {
@@ -213,8 +230,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     return i < 0 ? cwd : cwd.substring(0, i + '/files/home'.length);
   }
 
-  bool get _sesVar =>
-      s.sesDestekleniyor && widget.calisma.yetenek('ses');
+  bool get _sesVar => s.sesDestekleniyor && widget.calisma.yetenek('ses');
 
   void _sesDegistir() {
     final ses = s.ses;
@@ -284,9 +300,8 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     final r = await Pano.resim();
     if (r == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Panoda resim yok.')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Panoda resim yok.')));
       }
       return;
     }
@@ -329,7 +344,6 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         await _dosyaSec();
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -383,7 +397,10 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                     ? _sar(
                         Padding(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                          child: _SesPaneli(ses: s.ses),
+                          child: _SesPaneli(
+                            ses: s.ses,
+                            gorunum: widget.calisma.ayarlar.sesGorunumu,
+                          ),
                         ),
                       )
                     : const SizedBox.shrink(),
@@ -410,7 +427,10 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                       ipucu: s.calisiyor
                           ? 'Araya yaz — çalışan işe eklenir'
                           : 'Devam et…',
-                      cipler: [araclar.model],
+                      cipler: [
+                        if (s.asistan) _cihazCipi(),
+                        if (s.yanki) _yankiCipi() else araclar.model,
+                      ],
                       sagda: [
                         if (_sesVar)
                           ListenableBuilder(
@@ -438,6 +458,74 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     );
   }
 
+  /// Yankı: bütün rollerin seçimi tek çipte. Değişen her seçim bu sohbette
+  /// kalır ve yeni Yankı/Asistan oturumlarının varsayılanı olur.
+  Widget _yankiCipi() => yankiCipi(
+    calisma: widget.calisma,
+    dinle: s,
+    etkin: !s.calisiyor,
+    secim: () => s.yankiSecimi,
+    degisti: (yeni) async {
+      await s.yankiDegistir(yeni);
+      yeni.kaydet(widget.calisma.ayarlar);
+    },
+  );
+
+  /// Asistan'ın denetlediği cihaz: kayıtlı sunuculardan biri ya da hiçbiri.
+  Widget _cihazCipi() {
+    final c = widget.calisma;
+    final cihaz = s.cihaz;
+    final araclar = s.cihazAraclari;
+    return SecimCipi<String>(
+      simge: s.cihazDegisiyor
+          ? const SizedBox.square(
+              dimension: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(cihaz == null ? Icons.devices_other : Icons.dns_outlined),
+      etiket: cihaz ?? 'Cihaz yok',
+      ipucu: 'Asistan hangi cihazı denetlesin',
+      etkin: !s.calisiyor && !s.cihazDegisiyor,
+      secili: cihaz ?? '',
+      secenekler: [
+        ('', 'Cihaz yok', 'Yalnız bu telefondaki araçlar', true),
+        for (final k in c.sunucular)
+          (
+            k['ad'] as String,
+            k['ad'] as String,
+            k['ad'] == cihaz && araclar.isNotEmpty
+                ? '${k['host']} · ${araclar.map(_aracAdi).join(', ')}'
+                : 'SSH · ${k['host']}',
+            true,
+          ),
+      ],
+      secildi: (v) async {
+        final m = ScaffoldMessenger.of(context);
+        try {
+          final bulunan = await s.cihazSec(v.isEmpty ? null : v);
+          if (v.isEmpty) return;
+          m.showSnackBar(
+            SnackBar(
+              content: Text(
+                bulunan.isEmpty
+                    ? '$v bağlandı ama LifeOS araçları bulunamadı.'
+                    : '$v: ${bulunan.map(_aracAdi).join(' ve ')} bağlandı.',
+              ),
+            ),
+          );
+        } catch (e) {
+          m.showSnackBar(SnackBar(content: Text('Cihaza bağlanılamadı: $e')));
+        }
+      },
+    );
+  }
+
+  static String _aracAdi(String a) => switch (a) {
+    'lifeos' => 'LifeOS',
+    'folio' => 'LifeOS Folio',
+    _ => a,
+  };
+
   Widget _sar(Widget w) => Center(
     child: ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 780),
@@ -447,7 +535,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
 
   Widget _blok(_Blok b) => switch (b) {
     _KullaniciBlok(:final oge) => _KullaniciBalonu(oge: oge, dosyaAc: _dosyaAc),
-    _AjanBasligi() => _AjanSatiri(ajan: s.ajan),
+    _AjanBasligi(:final ajan) => _AjanSatiri(ajan: ajan ?? s.ajan),
     _MetinBlok(:final oge) => Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Markdown(oge.metin, size: 15, onLink: _dosyaAc),
@@ -543,10 +631,7 @@ class _CalisiyorState extends State<_Calisiyor> {
   @override
   void initState() {
     super.initState();
-    _saat = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => setState(() {}),
-    );
+    _saat = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
   }
 
   @override
@@ -735,10 +820,7 @@ class _DusunceState extends State<_Dusunce> {
   }
 
   static String _sonSatirlar(String s, int n) {
-    final satirlar = s
-        .split('\n')
-        .where((x) => x.trim().isNotEmpty)
-        .toList();
+    final satirlar = s.split('\n').where((x) => x.trim().isNotEmpty).toList();
     return satirlar
         .sublist(satirlar.length > n ? satirlar.length - n : 0)
         .join('\n');
@@ -1270,8 +1352,18 @@ class _UyariSatiri extends StatelessWidget {
 /// Sesli konuşma sürerken yazma kutusunun üstünde: durum, son söylenenler,
 /// sessize al ve bitir.
 class _SesPaneli extends StatelessWidget {
-  const _SesPaneli({required this.ses});
+  const _SesPaneli({required this.ses, required this.gorunum});
   final SesliKonusma ses;
+
+  /// 'sade' ya da Yankı'nın figürlerinden biri ('yanki', 'ag', 'dalga').
+  final String gorunum;
+
+  void _tamEkran(BuildContext context) => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => YankiEkrani(ses: ses, gorunum: gorunum),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1298,6 +1390,21 @@ class _SesPaneli extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (gorunum != 'sade' && ses.acik)
+            Padding(
+              padding: const EdgeInsets.only(right: 8, bottom: 8),
+              child: GestureDetector(
+                onTap: () => _tamEkran(context),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    color: yankiZemini,
+                    height: 92,
+                    child: YankiFiguru(ses: ses, gorunum: gorunum),
+                  ),
+                ),
+              ),
+            ),
           Row(
             children: [
               if (ses.durum == SesDurumu.baglaniyor ||
@@ -1319,6 +1426,13 @@ class _SesPaneli extends StatelessWidget {
                   style: t.labelLarge?.copyWith(color: renk),
                 ),
               ),
+              if (ses.acik && gorunum != 'sade')
+                IconButton(
+                  tooltip: 'Tam ekran',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                  onPressed: () => _tamEkran(context),
+                ),
               if (ses.acik)
                 IconButton(
                   tooltip: ses.sessiz ? 'Mikrofonu aç' : 'Sessize al',

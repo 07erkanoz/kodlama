@@ -51,6 +51,78 @@ const _effortAdlari = {
 /// değerleri okusun diye fonksiyon olarak verilir.
 typedef AjanAyari = ({String ajan, String? model, String? effort, String mod});
 
+/// Bir rolün (ör. Yankı'da ses ajanı, işi yapan, yazılı mesajlar) model ve
+/// düşünme gücü çipi: sohbetteki model çipinin aynısı, onay biçimi olmadan.
+/// [sec] her seçimde iki değeri birlikte verir.
+Widget modelCipi({
+  required Calisma calisma,
+  required String ajan,
+  required String? model,
+  required String? effort,
+  required void Function(String? model, String? effort) sec,
+  String? altBaslik,
+  bool rozet = true,
+  bool etkin = true,
+}) => Builder(
+  builder: (context) {
+    final b = _ajanBilgisi(calisma, ajan, model);
+    final modelAdi = model == null
+        ? (b.secili != null ? '${b.secili!['ad']}' : 'Varsayılan')
+        : '${b.secili?['ad'] ?? model}';
+    final sira = effort == null ? 0 : b.effortlar.indexOf(effort) + 1;
+    void ac() {
+      var m = model, e = effort;
+      ayarPaneliAc(
+        context,
+        baslik: ajanAdi(ajan),
+        altBaslik: altBaslik,
+        onde: AjanRozeti(ajan: ajan, boyut: 32),
+        dinle: calisma,
+        bolumler: () => [
+          for (final bolum in ajanAyarBolumleri(
+            calisma: calisma,
+            ajan: ajan,
+            model: m,
+            effort: e,
+            mod: 'otomatik',
+            modelSec: (v) {
+              m = v;
+              e = uygunEffort(calisma, ajan, v, e);
+              sec(m, e);
+            },
+            effortSec: (v) {
+              e = v;
+              sec(m, e);
+            },
+            modSec: (_) {},
+          ))
+            if (bolum.baslik != 'Onay biçimi') bolum,
+        ],
+      );
+    }
+
+    return AracDugmesi(
+      ipucu: '${ajanAdi(ajan)}: model ve düşünme gücü',
+      onTap: etkin ? ac : null,
+      cocuklar: [
+        if (rozet) ...[
+          AjanRozeti(ajan: ajan, boyut: 16),
+          const SizedBox(width: 6),
+        ],
+        Flexible(child: Text(modelAdi)),
+        const SizedBox(width: 7),
+        EforCubugu(seviye: seviyeCubugu(sira, b.effortlar.length + 1)),
+        const SizedBox(width: 3),
+        Icon(
+          Icons.expand_more,
+          size: 16,
+          color: Theme.of(context).colorScheme.outline,
+        ),
+      ],
+    );
+  },
+);
+
 /// Mesaj kutusunun araç satırındaki iki düğme: model + düşünme gücü
 /// (`Sol ▂▄▆ ⌄`) ve onay biçimi (`Otomatik`). İkisi de aynı alt paneli açar.
 ({Widget model, Widget bicim}) ajanAraclari({

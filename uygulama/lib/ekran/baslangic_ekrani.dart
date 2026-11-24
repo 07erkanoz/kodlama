@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../arayuz/ajan_ayarlari.dart';
 import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
+import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
 import '../servis/termux.dart';
@@ -50,6 +51,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
         ..addAll(p.dosyalar);
     });
   }
+
   String? _proje;
   String? _ajan;
   String _mod = 'otomatik';
@@ -91,14 +93,17 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
     if (metin.isEmpty || ajan == null || _gonderiliyor) return;
     if (sunucu == null && proje == null) return;
     setState(() => _gonderiliyor = true);
+    final a = c.ayarlar;
+    final yanki = _yankiAcik(ajan);
     try {
       await c.hizliBaslat(
         ajan: ajan,
         cwd: proje ?? '',
         metin: metin,
         mod: _mod,
-        model: _model,
-        effort: _effort,
+        model: yanki ? YankiSecimi.varsayilan(a).ajanModel : _model,
+        effort: yanki ? YankiSecimi.varsayilan(a).ajanEffort : _effort,
+        yanki: yanki,
         sunucu: sunucu?['ad'] as String?,
         uzakKlasor: sunucu == null
             ? null
@@ -114,6 +119,32 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
     } finally {
       if (mounted) setState(() => _gonderiliyor = false);
     }
+  }
+
+  /// Yankı modu yalnız Codex'le (ses Codex'tir) ve köprü destekliyorsa.
+  bool _yankiAcik(String? ajan) =>
+      ajan == 'codex' && c.ayarlar.yanki && c.yetenek('asistan');
+
+  List<Widget> _yankiCipleri(String? ajan) {
+    if (ajan != 'codex' || !c.yetenek('asistan')) return const [];
+    final a = c.ayarlar;
+    return [
+      FilterChip(
+        avatar: const Icon(Icons.graphic_eq_rounded, size: 16),
+        label: const Text('Yankı'),
+        tooltip: 'Codex sesle konuşur; rolleri sen seçersin',
+        selected: a.yanki,
+        visualDensity: VisualDensity.compact,
+        onSelected: (v) => setState(() => a.yanki = v),
+      ),
+      if (a.yanki)
+        yankiCipi(
+          calisma: c,
+          altBaslik: 'Yeni Yankı ve Asistan oturumlarının seçimleri',
+          secim: () => YankiSecimi.varsayilan(a),
+          degisti: (yeni) async => setState(() => yeni.kaydet(a)),
+        ),
+    ];
   }
 
   Future<void> _klonla() async {
@@ -208,8 +239,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
           builder: (context, kisit) {
             final dar = kisit.maxWidth < 600;
             return SingleChildScrollView(
-              keyboardDismissBehavior:
-                  ScrollViewKeyboardDismissBehavior.onDrag,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               padding: EdgeInsets.fromLTRB(
                 16,
                 dar ? 24 : kisit.maxHeight * .12,
@@ -249,6 +279,10 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                         ),
                       ),
                       const SizedBox(height: 22),
+                      if (bagli && c.yetenek('asistan')) ...[
+                        _AsistanKarti(calisma: c),
+                        const SizedBox(height: 16),
+                      ],
                       Row(
                         children: [
                           if (c.sunucular.isNotEmpty) ...[
@@ -286,46 +320,46 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                             child: Align(
                               alignment: Alignment.centerLeft,
                               child: sunucu != null
-                                ? ActionChip(
-                                    avatar: const Icon(
-                                      Icons.folder_outlined,
-                                      size: 15,
-                                    ),
-                                    label: Text(
-                                      _uzakKlasor ??
-                                          sunucu['klasor'] as String? ??
-                                          '~',
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    onPressed: _uzakKlasorSec,
-                                  )
-                                : SecimCipi<String>(
-                                    simge: const Icon(Icons.folder_outlined),
-                                    etiket: projeAdi,
-                                    ipucu: 'Proje',
-                                    secili: proje,
-                                    secenekler: [
-                                      for (final p in c.projeler)
+                                  ? ActionChip(
+                                      avatar: const Icon(
+                                        Icons.folder_outlined,
+                                        size: 15,
+                                      ),
+                                      label: Text(
+                                        _uzakKlasor ??
+                                            sunucu['klasor'] as String? ??
+                                            '~',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      onPressed: _uzakKlasorSec,
+                                    )
+                                  : SecimCipi<String>(
+                                      simge: const Icon(Icons.folder_outlined),
+                                      etiket: projeAdi,
+                                      ipucu: 'Proje',
+                                      secili: proje,
+                                      secenekler: [
+                                        for (final p in c.projeler)
+                                          (
+                                            p['yol'] as String,
+                                            p['ad'] as String,
+                                            goreliZaman(p['degisme'] as num?),
+                                            true,
+                                          ),
+                                        ('+', '+ Yeni proje…', null, true),
                                         (
-                                          p['yol'] as String,
-                                          p['ad'] as String,
-                                          goreliZaman(p['degisme'] as num?),
+                                          'klon',
+                                          '⇣ GitHub\'dan klonla…',
+                                          null,
                                           true,
                                         ),
-                                      ('+', '+ Yeni proje…', null, true),
-                                      (
-                                        'klon',
-                                        '⇣ GitHub\'dan klonla…',
-                                        null,
-                                        true,
-                                      ),
-                                    ],
-                                    secildi: (v) => v == '+'
-                                        ? _yeniProje()
-                                        : v == 'klon'
-                                        ? _klonla()
-                                        : setState(() => _proje = v),
-                                  ),
+                                      ],
+                                      secildi: (v) => v == '+'
+                                          ? _yeniProje()
+                                          : v == 'klon'
+                                          ? _klonla()
+                                          : setState(() => _proje = v),
+                                    ),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -366,8 +400,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                                       _effort,
                                     );
                                   }),
-                                  effortSec: (v) =>
-                                      setState(() => _effort = v),
+                                  effortSec: (v) => setState(() => _effort = v),
                                   modSec: (v) => setState(() => _mod = v),
                                 );
                           return MesajKutusu(
@@ -375,9 +408,8 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                             gonder: _gonder,
                             ekler: [for (final d in _paylasilan) d.yol],
                             ekKaldir: (yol) => setState(
-                              () => _paylasilan.removeWhere(
-                                (d) => d.yol == yol,
-                              ),
+                              () =>
+                                  _paylasilan.removeWhere((d) => d.yol == yol),
                             ),
                             otomatikOdak: !dar,
                             enAzSatir: 4,
@@ -389,7 +421,10 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                             ipucu: ajan == null
                                 ? 'Kurulu ajan bulunamadı'
                                 : '${ajanAdi(ajan)} için bir görev yaz…',
-                            cipler: [?araclar?.model],
+                            cipler: [
+                              ..._yankiCipleri(ajan),
+                              if (!_yankiAcik(ajan)) ?araclar?.model,
+                            ],
                             sagda: [?araclar?.bicim],
                           );
                         },
@@ -651,7 +686,6 @@ class _KopruUyarisi extends StatelessWidget {
   }
 }
 
-
 /// Kutunun üstündeki küçük ajan anahtarı: `[C Claude | X Codex]`. Kurulu
 /// olmayan ajan soluk görünür; dokununca kurulumu önerir.
 class _AjanSecici extends StatelessWidget {
@@ -762,5 +796,86 @@ class _AjanSecici extends StatelessWidget {
       ),
     );
     if (evet == true) await kur!(ad);
+  }
+}
+
+/// Projeden bağımsız Asistan: Codex sesli ya da yazılı konuşur, basit işleri
+/// kendisi yapar, ağır işleri Claude'a verir; seçilen cihazın LifeOS
+/// araçlarını kullanır.
+class _AsistanKarti extends StatefulWidget {
+  const _AsistanKarti({required this.calisma});
+  final Calisma calisma;
+
+  @override
+  State<_AsistanKarti> createState() => _AsistanKartiState();
+}
+
+class _AsistanKartiState extends State<_AsistanKarti> {
+  bool _aciliyor = false;
+
+  Future<void> _ac() async {
+    setState(() => _aciliyor = true);
+    try {
+      await widget.calisma.asistanAc();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Asistan açılamadı: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _aciliyor = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    return Material(
+      color: r.secondaryContainer.withValues(alpha: .55),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _aciliyor ? null : _ac,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+          child: Row(
+            children: [
+              Icon(Icons.graphic_eq_rounded, color: r.onSecondaryContainer),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Asistan',
+                      style: t.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      'Projeden bağımsız. Codex konuşur, ağır işleri '
+                      'Claude yapar; seçtiğin cihazın LifeOS araçlarını kullanır.',
+                      style: t.textTheme.bodySmall?.copyWith(
+                        color: r.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _aciliyor
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

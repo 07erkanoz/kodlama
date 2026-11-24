@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 
 import '../servis/ayarlar.dart';
 import '../servis/kopru_istemci.dart';
+import 'yanki_secimi.dart';
 import '../servis/kurulum_sunucusu.dart';
 import '../servis/paylasim.dart';
 import '../servis/termux.dart';
@@ -36,7 +37,7 @@ class Calisma extends ChangeNotifier {
 
   /// Bu uygulamanın beklediği en düşük köprü sürümü. Köprüye yeni bir işlem
   /// eklenince artırılır; telefondaki köprü daha eskiyse güncelleme önerilir.
-  static const gerekenKopruSurumu = '0.9.0';
+  static const gerekenKopruSurumu = '0.10.0';
   String? kopruSurumu;
   bool kopruGuncelleniyor = false;
   KurulumSunucusu? _kurulumSunucusu;
@@ -222,15 +223,38 @@ class Calisma extends ChangeNotifier {
     String? uzakKlasor,
     String? model,
     String? effort,
+    bool yanki = false,
   }) async {
     final r = await istemci.iste('oturum_ac', {
       'model': ?model,
       'effort': ?effort,
+      if (yanki) 'yanki': true,
+      if (yanki) ...YankiSecimi.varsayilan(ayarlar).kopruAlanlari(),
       'ajan': ajan,
       'cwd': cwd,
       'mod': mod,
       'sunucu': ?sunucu,
       'uzak_klasor': ?uzakKlasor,
+    });
+    final ozet = (r['oturum'] as Map).cast<String, dynamic>();
+    oturumlar = [ozet, ...oturumlar];
+    await sec(ozet);
+  }
+
+  /// Asistan'ı aç: varsa en son Asistan oturumu, yoksa yenisi (Codex).
+  Future<void> asistanAc() async {
+    final var_ = oturumlar.where((o) => o['asistan'] == true).firstOrNull;
+    if (var_ != null) {
+      await sec(var_);
+      return;
+    }
+    final y = YankiSecimi.varsayilan(ayarlar);
+    final r = await istemci.iste('oturum_ac', {
+      'ajan': 'codex',
+      'asistan': true,
+      ...y.kopruAlanlari(),
+      'model': ?y.ajanModel,
+      'effort': ?y.ajanEffort,
     });
     final ozet = (r['oturum'] as Map).cast<String, dynamic>();
     oturumlar = [ozet, ...oturumlar];
@@ -420,11 +444,13 @@ class Calisma extends ChangeNotifier {
     String? uzakKlasor,
     String? model,
     String? effort,
+    bool yanki = false,
     List<({String ad, String yol, int boyut})> yerelEkler = const [],
   }) async {
     await yeniOturum(
       model: model,
       effort: effort,
+      yanki: yanki,
       ajan: ajan,
       cwd: cwd,
       mod: mod,

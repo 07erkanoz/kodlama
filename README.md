@@ -125,6 +125,39 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   listeler, ekler (komut ya da HTTP adresi, ortam değişkenleri, Claude'da başlıklar) ve siler.
   İşi CLI'ların kendi `mcp add/remove` komutları yapar; gizli değerler köprüden geri dönmez.
 - **Tablet düzeni:** oturum listesi ve dosya paneli üst çubuktaki düğmelerle açılıp kapanır.
+- **Asistan:** başlangıç ekranındaki "Asistan" projeden bağımsız bir Yankı oturumu açar
+  (`~/projeler/.atolye/asistan`, web araması açık). **Cihaz:** yazma kutusundaki çip kayıtlı SSH
+  sunucularından birini seçer; köprü o makinede `lifeos`, `lifeos-folio` ve `lifeos-asistan`
+  programlarını arar, yalnız kurulu olanları bağlar: Codex'e `codex app-server -c
+  mcp_servers.cihaz_<ad>={command="ssh", args=[…]}`, Claude'a `--mcp-config` ile. MCP sunucusu o
+  makinede SSH içinden çalışır. Makine bir LifeOS Server ise `lifeos mcp serve` sunucu araçlarını da
+  verir (bileşen, güvenlik duvarı, ağ, siteler, yedekler, uygulamalar). Değiştiren araçlar onay
+  ister (Codex'in `mcpServer/elicitation/request` ve `item/tool/requestUserInput` istekleri
+  sohbette onay kartı olur); root olmayan kullanıcıda değişiklik polkit parolası ister. Cihaz
+  değişince Codex ve Claude yeniden başlar, sohbet kaldığı yerden sürer.
+- **Yankı modu:** başlangıç ekranında Codex seçiliyken "Yankı" (projede, yerel ya da uzak) ve
+  Asistan. Ses her zaman Codex'in realtime sesidir. Roller ayrı seçilir, her modelde düşünme gücüyle:
+  - **Ses ajanı:** sesin işi devrettiği Codex (Codex'in ses modeli araç çağıramaz, işi yalnız bir
+    Codex thread'ine devredebilir; bkz. openai/codex#59723). Varsayılan güç düşük.
+  - **Sesle istenen işi yapan:** ses ajanının kendisi ya da Claude. Claude seçiliyse ajan işi
+    `claude_sor` aracıyla (`dynamicTools`, `item/tool/call`) Claude Code'a verir; Claude aynı
+    sohbette çalışır, araçları ve onayları Claude başlığıyla görünür, son metni araç sonucu olarak
+    sese döner.
+  - **Yazılı mesajlar:** Codex ya da Claude. Claude seçiliyse yazılanlar Codex'e uğramaz. Codex
+    seçiliyse yazılı tur kendi modeliyle çalışır, tur bitince `thread/settings/update` ile ses
+    ajanının modeline dönülür. Claude'un sohbeti tektir (`--resume`): sesle ve yazıyla verilen işler
+    aynı bağlamdadır; model değişince süreç yeniden başlar.
+  - **Sese durum bildirimi:** kapalı, önemli anlar (Claude onay beklerken, yazılı iş bitince) ya
+    da her adım (en çok 8 sn'de bir), `thread/realtime/appendText` ile.
+  Seçimler tek "Yankı" çipinde (yazma kutusu) ve Ayarlar › Yankı ve sesli konuşma'da. Sohbette
+  değişen seçim o oturumda saklanır (köprü) ve yeni oturumların varsayılanı olur (uygulama).
+- **Sunucuya bağlanma:** Ayarlar › Sunucu ekle içindeki "Nasıl bağlanır?" SSH (sabit IP ya da
+  alan adı, telefonun anahtarını `authorized_keys`'e ekleme) ve isteğe bağlı Tailscale adımlarını
+  gösterir. Telefonda Tailscale Android uygulaması VPN olarak çalışır; Termux'a ayrıca bir şey
+  kurulmaz.
+- **Sesli konuşma görünümü:** Ayarlar › Sesli konuşma › Görünüm: Sade ya da LifeOS Yankı'nın
+  figürleri (Yankı, Ağ, Dalga). Figür sesin gerçek yüksekliğiyle oynar (WebRTC `audioLevel`,
+  saniyede on kez); panelde dokununca tam ekran açılır.
 
 ## Ekran düzenleri
 

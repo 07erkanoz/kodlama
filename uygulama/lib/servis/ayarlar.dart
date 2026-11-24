@@ -49,6 +49,43 @@ class Ayarlar {
   set sesSesi(String v) => _p.setString('sesSesi', v);
   String get sesDili => _p.getString('sesDili') ?? 'tr';
   set sesDili(String v) => _p.setString('sesDili', v);
+
+  /// Sesli konuşmanın görünümü: 'sade' ya da Yankı'nın figürleri
+  /// ('yanki', 'ag', 'dalga').
+  String get sesGorunumu => _p.getString('sesGorunumu') ?? 'yanki';
+  set sesGorunumu(String v) => _p.setString('sesGorunumu', v);
+
+  /// Yankı modu son seçimleri: yeni Yankı ve Asistan oturumları bunlarla
+  /// başlar. İşi yapan 'claude' ya da 'codex'.
+  bool get yanki => _p.getBool('yanki') ?? false;
+  set yanki(bool v) => _p.setBool('yanki', v);
+  String get yankiIsci => _p.getString('yankiIsci') ?? 'claude';
+  set yankiIsci(String v) => _p.setString('yankiIsci', v);
+  String? get yankiClaudeModel => _bos(_p.getString('yankiClaudeModel'));
+  set yankiClaudeModel(String? v) => _p.setString('yankiClaudeModel', v ?? '');
+  String? get yankiClaudeEffort => _bos(_p.getString('yankiClaudeEffort'));
+  set yankiClaudeEffort(String? v) =>
+      _p.setString('yankiClaudeEffort', v ?? '');
+  String? get yankiCodexModel => _bos(_p.getString('yankiCodexModel'));
+  set yankiCodexModel(String? v) => _p.setString('yankiCodexModel', v ?? '');
+  String? get yankiCodexEffort => _bos(_p.getString('yankiCodexEffort'));
+  set yankiCodexEffort(String? v) => _p.setString('yankiCodexEffort', v ?? '');
+
+  /// Yazılı mesajları kim yanıtlar ('codex' ya da 'claude') ve modeli.
+  String get yankiYazili => _p.getString('yankiYazili') ?? 'codex';
+  set yankiYazili(String v) => _p.setString('yankiYazili', v);
+  String? get yankiYaziliModel => _bos(_p.getString('yankiYaziliModel'));
+  set yankiYaziliModel(String? v) => _p.setString('yankiYaziliModel', v ?? '');
+  String? get yankiYaziliEffort => _bos(_p.getString('yankiYaziliEffort'));
+  set yankiYaziliEffort(String? v) =>
+      _p.setString('yankiYaziliEffort', v ?? '');
+
+  /// Ses açıkken Claude'un durumu sese: 'kapali', 'onemli', 'hepsi'.
+  String get yankiDurumNotu => _p.getString('yankiDurumNotu') ?? 'onemli';
+  set yankiDurumNotu(String v) => _p.setString('yankiDurumNotu', v);
+
+  static String? _bos(String? v) => v == null || v.isEmpty ? null : v;
+
   String get sesModeli => _p.getString('sesModeli') ?? '';
   set sesModeli(String v) => _p.setString('sesModeli', v);
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -56,6 +57,13 @@ class SesliKonusma extends ChangeNotifier {
   DateTime _sonEtkinlik = DateTime.now();
   SesSatiri? _duyulan, _soylenen;
   bool _kapaniyor = false;
+  Timer? _olcer;
+  bool _olcuyor = false;
+
+  /// Duyulan sesin yüksekliği (0…1): konuşurken Codex'in, dinlerken
+  /// kullanıcının. Görünümdeki figürü oynatır; WebRTC istatistiklerinden
+  /// saniyede on kez okunur.
+  final seviye = ValueNotifier<double>(0);
 
   bool get acik => durum != SesDurumu.kapali;
 
@@ -135,6 +143,10 @@ class SesliKonusma extends ChangeNotifier {
       }
       _sonEtkinlik = DateTime.now();
       _saat = Timer.periodic(const Duration(seconds: 1), (_) => _tik());
+      _olcer = Timer.periodic(
+        const Duration(milliseconds: 100),
+        (_) => unawaited(_olc()),
+      );
     } catch (e) {
       hata ??= _acikla(e);
       await bitir();
@@ -181,6 +193,9 @@ class SesliKonusma extends ChangeNotifier {
     _mikrofon = null;
     _saat?.cancel();
     _saat = null;
+    _olcer?.cancel();
+    _olcer = null;
+    seviye.value = 0;
     pc?.onConnectionState = null;
     if (_yanit case final y? when !y.isCompleted) {
       y.completeError(StateError('durduruldu'));
@@ -201,6 +216,33 @@ class SesliKonusma extends ChangeNotifier {
     _kapaniyor = false;
     _ver(SesDurumu.kapali);
     notifyListeners();
+  }
+
+  Future<void> _olc() async {
+    final pc = _pc;
+    if (pc == null || _olcuyor) return;
+    _olcuyor = true;
+    try {
+      double gelen = 0, giden = 0;
+      for (final r in await pc.getStats()) {
+        final v = r.values;
+        if (v['kind'] != 'audio') continue;
+        final l = (v['audioLevel'] as num?)?.toDouble();
+        if (l == null) continue;
+        if (r.type == 'inbound-rtp') gelen = l;
+        if (r.type == 'media-source') giden = l;
+      }
+      final l = durum == SesDurumu.konusuyor
+          ? gelen
+          : (sessiz ? 0.0 : giden).clamp(0.0, 1.0).toDouble();
+      // audioLevel doğrusal genlik; konuşma çoğunlukla .02-.3 arası.
+      final hedef = (l <= 0 ? 0.0 : (math.sqrt(l) * 1.4)).clamp(0.0, 1.0);
+      seviye.value = seviye.value * .4 + hedef * .6;
+    } catch (_) {
+      // bazı cihazlarda istatistik yok: figür yalnız durumla oynar
+    } finally {
+      _olcuyor = false;
+    }
   }
 
   @override
@@ -332,11 +374,30 @@ bool durdurmaSozu(String soz) {
 /// seçilmeli.
 const codexSesleri = <(String, String)>[
   ('marin', 'kadın'),
-  ('arbor', ''), ('aube', ''), ('breeze', ''), ('bubbie', ''), ('cove', ''),
-  ('ember', ''), ('haetsal', ''), ('hanul', ''), ('himari', ''),
-  ('juniper', ''), ('leher', ''), ('maple', ''), ('miko', ''), ('neer', ''),
-  ('porto', ''), ('rindo', ''), ('rio', ''), ('rivage', ''), ('selva', ''),
-  ('sol', ''), ('sonna', ''), ('spruce', ''), ('tinta', ''), ('vale', ''),
+  ('arbor', ''),
+  ('aube', ''),
+  ('breeze', ''),
+  ('bubbie', ''),
+  ('cove', ''),
+  ('ember', ''),
+  ('haetsal', ''),
+  ('hanul', ''),
+  ('himari', ''),
+  ('juniper', ''),
+  ('leher', ''),
+  ('maple', ''),
+  ('miko', ''),
+  ('neer', ''),
+  ('porto', ''),
+  ('rindo', ''),
+  ('rio', ''),
+  ('rivage', ''),
+  ('selva', ''),
+  ('sol', ''),
+  ('sonna', ''),
+  ('spruce', ''),
+  ('tinta', ''),
+  ('vale', ''),
   ('viola', ''),
 ];
 

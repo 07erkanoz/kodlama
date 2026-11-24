@@ -51,16 +51,18 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.9.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.10.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
 METIN_SINIRI = 512 * 1024
 TERMUX = "com.termux" in os.environ.get("PREFIX", "")
 REHBER = Path(__file__).with_name("termux_rehberi.md")
+# Asistan oturumlarının klasörü: bir projeye bağlı değil, proje listesinde görünmez.
+ASISTAN_KLASORU = KOK / ".atolye" / "asistan"
 
 
 def ajan_rehberi() -> str | None:
@@ -887,6 +889,22 @@ class Oturum:
         self.effort: str | None = veri.get("effort")
         self.sunucu: str | None = veri.get("sunucu")  # uzak sunucu adı (yoksa bu cihaz)
         self.uzak_klasor: str | None = veri.get("uzak_klasor")
+        self.asistan: bool = bool(veri.get("asistan"))  # projeden bağımsız Asistan oturumu
+        # Yankı modu: Codex konuşur ve yönetir, işi "claude_sor" ile Claude yapar (Asistan hep böyle)
+        self.yanki: bool = self.asistan or bool(veri.get("yanki"))
+        self.claude_model: str | None = veri.get("claude_model")  # Yankı'daki Claude'un modeli (yoksa opus)
+        self.claude_effort: str | None = veri.get("claude_effort")
+        # Yankı'da işi yapan: "claude" (claude_sor ile) ya da "codex" (Codex kendisi)
+        self.isci: str = veri.get("isci") or "claude"
+        # Yazılı mesajları kim yanıtlar: "codex" (ses ajanının thread'i) ya da "claude" (doğrudan)
+        self.yazili: str = veri.get("yazili") or "codex"
+        self.yazili_model: str | None = veri.get("yazili_model")
+        self.yazili_effort: str | None = veri.get("yazili_effort")
+        # Ses açıkken Claude'un durumu sese bildirilsin mi: kapali | onemli | hepsi
+        self.durum_notu: str = veri.get("durum_notu") or "onemli"
+        self.claude_sid: str | None = veri.get("claude_sid")  # Asistan'ın "Claude'a sor" sohbeti
+        self.cihaz: str | None = veri.get("cihaz")  # Asistan'ın denetlediği kayıtlı sunucu
+        self.cihaz_mcp: dict[str, list[str]] = veri.get("cihaz_mcp") or {}  # ad → o cihazdaki komut
         self.olusturma: float = veri.get("olusturma", simdi())
         self.guncelleme: float = veri.get("guncelleme", self.olusturma)
         self.durum = "bos"  # bos | calisiyor
@@ -903,12 +921,22 @@ class Oturum:
             "sid": self.sid, "mod": self.mod, "model": self.model, "effort": self.effort,
             "olusturma": self.olusturma, "guncelleme": self.guncelleme,
             "sunucu": self.sunucu, "uzak_klasor": self.uzak_klasor,
+            "asistan": self.asistan, "yanki": self.yanki, "claude_sid": self.claude_sid,
+            "claude_model": self.claude_model, "claude_effort": self.claude_effort, "isci": self.isci,
+            "yazili": self.yazili, "yazili_model": self.yazili_model, "yazili_effort": self.yazili_effort,
+            "durum_notu": self.durum_notu,
+            "cihaz": self.cihaz, "cihaz_mcp": self.cihaz_mcp,
         }
 
     def ozet(self) -> dict:
         d = self.veri()
         d["durum"] = self.durum
-        d["goreli"] = f"{self.sunucu}:{self.uzak_klasor}" if self.sunucu else goreli(str(self.cwd), KOK.resolve())
+        if self.asistan:
+            d["goreli"] = f"Asistan · {self.cihaz}" if self.cihaz else "Asistan"
+        elif self.sunucu:
+            d["goreli"] = f"{self.sunucu}:{self.uzak_klasor}"
+        else:
+            d["goreli"] = goreli(str(self.cwd), KOK.resolve())
         return d
 
     # --- olay yayını
@@ -1070,12 +1098,15 @@ class ClaudeOturum(Oturum):
             a += ["--model", self.model]
         if self.effort:
             a += ["--effort", self.effort]
-        rehber = None if self.sunucu else ajan_rehberi()
+        rehber = self.rehber()
         if rehber:
             a += ["--append-system-prompt", rehber]
         if self.sid:
             a += ["--resume", self.sid]
         return a
+
+    def rehber(self) -> str | None:
+        return None if self.sunucu else ajan_rehberi()
 
     async def gonder(self, metin, ekler):
         if ekler:
@@ -1202,6 +1233,212 @@ class ClaudeOturum(Oturum):
             self.durum_ver("bos")
 
 
+# ---------------------------------------------------------------- Asistan
+#
+# Projeden bağımsız sohbet: Codex konuşur ve basit işleri (MCP araçlarıyla)
+# kendisi yapar; ağır işi "claude_sor" aracıyla Claude Code'a (Opus) verir.
+# Claude aynı sohbette çalışır: araçları ve onayları Asistan sohbetinde
+# görünür, son cevabı Codex'e araç sonucu olarak döner. MCP sunucuları her
+# CLI'ın kendi ayarındakilerdir; başka bir makinedekiler SSH üzerinden
+# bağlanır (MCP ekranında "Nerede çalışsın").
+
+CLAUDE_SOR = "claude_sor"
+YANKI_ALANLARI = ("yazili", "yazili_model", "yazili_effort", "durum_notu")
+ASISTAN_CLAUDE_MODELI = "opus"
+
+ASISTAN_REHBERI = (
+    "Atölye uygulamasında kullanıcının genel asistanısın; bir yazılım projesinde değilsin. "
+    "Türkçe, kısa ve net cevap ver. Basit işleri (bilgi, hesap, ajanda, not, makinelerin durumu, "
+    "kısa aramalar) kendin yap: MCP araçların (LifeOS, LifeOS Folio ve kullanıcının eklediği "
+    "sunucular) ve web araman var. Uzun inceleme, belge ya da dilekçe taslağı, birçok dosyayı "
+    "okuyup değerlendirme, kod yazma ve araştırma gibi ağır işleri claude_sor aracıyla Claude'a ver; "
+    "kullanıcı \"Claude'a sor\" derse de ver. Claude'a işi, kullanıcının kendi sözleriyle ve gereken "
+    "bütün ayrıntıyla eksiksiz anlat. Claude'un cevabını değiştirmeden aktar, gerekirse kısaca özetle. "
+    "Bir şey değiştiren araçlardan önce ne yapacağını söyle."
+)
+
+YANKI_CODEX_REHBERI = (
+    "Yankı modundasın ve bu projede işi kendin yapıyorsun: kullanıcı seni sesli ya da yazılı "
+    "yönetiyor. claude_sor aracını kullanma. Türkçe konuş, yaptığını kısa ve doğru aktar."
+)
+
+YANKI_REHBERI = (
+    "Yankı modundasın: bu projede kullanıcıyla konuşan ve işi yöneten sensin, işi yapan Claude Code. "
+    "Dosya düzenleme, kod yazma, yeni dosya üretme, yeniden düzenleme, test yazıp çalıştırma ve "
+    "uzun incelemeleri claude_sor aracıyla Claude'a ver; ona işi kullanıcının sözleriyle, dosya "
+    "adlarıyla ve bütün ayrıntısıyla anlat. Kendin yalnız kısa okumalar ve kontroller yap, dosya "
+    "değiştirme. Claude'un yaptığını kullanıcıya kısa ve doğru aktar. Türkçe konuş."
+)
+
+CLAUDE_SOR_ARACI = {
+    "type": "function",
+    "name": CLAUDE_SOR,
+    "description": (
+        "Bir işi Claude Code'a verir ve cevabını döndürür. Claude çalışma klasöründe dosya okuyup "
+        "yazabilir, komut çalıştırabilir, MCP araçlarına ve web'e erişir. Düzenleme, üretme, kod, "
+        "uzun inceleme, taslak ve araştırma için kullan. Dakikalar sürebilir; beklerken kullanıcıya "
+        "kısaca söyle. Aynı sohbetteki önceki Claude işleri hatırlanır."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {"soru": {"type": "string",
+                                "description": "Claude'dan istenen iş, kullanıcının sözleri ve bütün ayrıntılarıyla."}},
+        "required": ["soru"],
+    },
+}
+
+CLAUDE_ASISTAN_REHBERI = (
+    "Atölye'nin Asistan'ında, sesli ya da yazılı konuşan bir Codex ajanının sana devrettiği ağır işi "
+    "yapıyorsun; cevabın ona araç sonucu olarak döner ve kullanıcıya okunabilir. Türkçe yaz. "
+    "MCP araçlarını (LifeOS, LifeOS Folio ve eklenen sunucular) kullan. Son mesajın, işin "
+    "kendisi ya da kısa ve eksiksiz sonucu olsun; ara açıklama yazma."
+)
+
+
+# Seçilen cihazda aranan MCP programları: ad → (aranacak komutlar, argümanlar).
+CIHAZ_MCP = {
+    "lifeos": (["lifeos"], ["mcp", "serve"]),
+    "folio": (["/opt/lifeos-folio/lifeos_folio", "lifeos-folio", "lifeos_folio"], ["--mcp", "--dis"]),
+    "asistan": (["lifeos-asistan"], ["--mcp"]),
+}
+# Not: LifeOS Server'da `lifeos mcp serve` sunucu araçlarını da verir (bileşen, güvenlik duvarı,
+# ağ, siteler, yedekler); değiştirenler onay ister, root değilse polkit parolası gerekir.
+
+
+async def cihaz_mcp_bul(s: dict) -> dict[str, list[str]]:
+    """Kayıtlı sunucuda hangi LifeOS MCP'lerinin kurulu olduğuna SSH ile bak."""
+    aranan = [k for komutlar, _ in CIHAZ_MCP.values() for k in komutlar]
+    betik = "; ".join(f"command -v {shlex.quote(k)} || true" for k in aranan) + "; echo ATOLYE_OK"
+    kod, out, err = await calistir(ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", betik])], sure=25)
+    if kod != 0 or "ATOLYE_OK" not in out:
+        raise RuntimeError(kisa(err.strip(), 400) or "cihaza bağlanılamadı")
+    bulunan = {Path(x).name: x for x in out.split() if x.startswith("/")}
+    bulunan.update({x: x for x in out.split() if x.startswith("/opt/")})
+    sonuc = {}
+    for ad, (komutlar, args) in CIHAZ_MCP.items():
+        for k in komutlar:
+            yol = k if k.startswith("/") and k in bulunan else bulunan.get(k)
+            if yol:
+                sonuc[ad] = [yol, *args]
+                break
+    return sonuc
+
+
+def cihaz_mcp_tanimlari(o: "Oturum") -> dict[str, dict]:
+    """Asistan'ın cihazındaki MCP'ler, bu cihazdan SSH ile çalıştırılacak biçimde."""
+    if not o.cihaz or not o.cihaz_mcp:
+        return {}
+    s = o.k.sunucular().get(o.cihaz)
+    if not s:
+        return {}
+    tanim = {}
+    for ad, komut in o.cihaz_mcp.items():
+        args = uzak_komut(s, "~", komut)
+        tanim[f"cihaz_{ad}"] = {"command": args[0], "args": args[1:]}
+    return tanim
+
+
+def _toml(v) -> str:
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml(x) for x in v) + "]"
+    return json.dumps(v, ensure_ascii=False)
+
+
+CLAUDE_YANKI_REHBERI = (
+    "Atölye'nin Yankı modundasın: kullanıcıyla sesli ya da yazılı konuşan bir Codex ajanı bu "
+    "projedeki işi sana devretti; son mesajın ona araç sonucu olarak döner ve kullanıcıya "
+    "okunabilir. İşi eksiksiz yap, sonra son mesajında ne yaptığını (değişen dosyalar, sonuç) "
+    "kısa ve açık Türkçe yaz."
+)
+
+
+class ClaudeYardimci(ClaudeOturum):
+    """Asistan'ın "Claude'a sor" aracı: bir Asistan oturumunun içinde çalışan
+    Claude Code. Olayları (araçlar, onaylar) aynı sohbete yayılır; metinleri
+    yayılmaz, son metni aracın sonucudur. Durum Asistan'ındır."""
+
+    def __init__(self, ana: "CodexOturum"):
+        super().__init__(ana.k, {"id": ana.id, "ajan": "claude", "cwd": str(ana.cwd), "mod": ana.mod,
+                                 "model": ana.claude_model or ASISTAN_CLAUDE_MODELI,
+                                 "effort": ana.claude_effort, "sid": ana.claude_sid,
+                                 "sunucu": ana.sunucu, "uzak_klasor": ana.uzak_klasor})
+        self.ana = ana
+        self._son = ""
+        self._bekle: asyncio.Future | None = None
+        self.dogrudan = False  # yazılı mesaj doğrudan Claude'a: metinleri sohbette görünsün
+        self._son_not = 0.0
+
+    def rehber(self):
+        if self.ana.asistan:
+            return CLAUDE_ASISTAN_REHBERI
+        yerel = None if self.sunucu else ajan_rehberi()
+        return CLAUDE_YANKI_REHBERI + (f"\n\n{yerel}" if yerel else "")
+
+    def tur_basi(self):
+        # Claude Codex'in turunun içinde çalışır: değişen dosyaları Codex'in tur sonu bildirir.
+        self.goruntu = None
+
+    def _args(self):
+        a = super()._args()
+        tanim = cihaz_mcp_tanimlari(self.ana)
+        if tanim:
+            a += ["--mcp-config", json.dumps({"mcpServers": {
+                ad: {"type": "stdio", **t} for ad, t in tanim.items()}}, ensure_ascii=False)]
+        return a
+
+    def durum_ver(self, durum: str):
+        self.durum = durum  # yayılmaz: sohbetin durumu Asistan'ın
+
+    def _sese_bildir(self, metin: str, hep: bool = False):
+        """Ses açıkken Claude'un durumunu sese ilet (ayara göre)."""
+        a = self.ana
+        if not a.ses or a.durum_notu == "kapali" or (hep and a.durum_notu != "hepsi"):
+            return
+        if hep:  # her adımı söylemek konuşmayı boğmasın: en çok 8 sn'de bir
+            if simdi() - self._son_not < 8:
+                return
+            self._son_not = simdi()
+        asyncio.create_task(a.ses_metin(f"[Atölye durum bilgisi, kullanıcıya kısaca söyle] {metin}"))
+
+    def yay(self, olay: dict, kaydet: bool = True):
+        ev = olay.get("ev")
+        if ev == "onay":
+            self._sese_bildir(f"Claude onay bekliyor: {olay.get('arac')} — {kisa(olay.get('ozet') or '', 160)}. "
+                              "Kullanıcı ekrandan onaylamalı.")
+        elif ev == "arac":
+            self._sese_bildir(f"Claude şimdi: {olay.get('ad')} {kisa(olay.get('ozet') or '', 100)}", hep=True)
+        if ev == "metin":
+            if (olay.get("metin") or "").strip():
+                self._son = olay["metin"]
+            if not self.dogrudan:
+                return
+        if ev in ("parca", "dusunce", "dusunce_parca") and not self.dogrudan:
+            return
+        if ev == "bilgi":
+            return
+        olay = {**olay, "kaynak": "claude"}  # sohbette Claude başlığıyla görünsün
+        if ev == "bitti":
+            if self.sid and self.sid != self.ana.claude_sid:
+                self.ana.claude_sid = self.sid
+                self.k.oturumlari_kaydet()
+            f = self._bekle
+            if f and not f.done():
+                f.set_result((olay.get("hata"), self._son))
+            return
+        super().yay(olay, kaydet)
+
+    async def sor(self, soru: str) -> str:
+        if self._bekle and not self._bekle.done():
+            raise RuntimeError("Claude önceki işi yapıyor")
+        self._son = ""
+        self._bekle = asyncio.get_running_loop().create_future()
+        await self.gonder(soru, [])
+        hata, metin = await self._bekle
+        if hata and not metin.strip():
+            raise RuntimeError(hata)
+        return metin.strip() or "Claude bir cevap yazmadı."
+
+
 # ---------------------------------------------------------------- Codex
 
 
@@ -1214,6 +1451,9 @@ class CodexOturum(Oturum):
         self.tur: str | None = None
         self._ogeler: dict[str, dict] = {}
         self.ses = False  # sesli konuşma açık mı (thread/realtime)
+        self.yardimci: ClaudeYardimci | None = None  # Asistan'ın Claude'u
+        self.isci_notu = False
+        self._geri_al = False  # yazılı turun modeli bitince ses ajanınınkine dön
 
     async def _rpc(self, yontem, params=None, bildirim=False):
         m = {"jsonrpc": "2.0", "method": yontem}
@@ -1240,7 +1480,11 @@ class CodexOturum(Oturum):
     async def _hazirla(self):
         if self.surec:
             return
-        await self._baslat([self.komut("codex"), "app-server"])
+        args = [self.komut("codex"), "app-server"]
+        for ad, t in cihaz_mcp_tanimlari(self).items():
+            args += ["-c", f"mcp_servers.{ad}={{command={_toml(t['command'])}, args={_toml(t['args'])}, "
+                           f"startup_timeout_sec=30, tool_timeout_sec=600}}"]
+        await self._baslat(args)
         # experimentalApi: sesli konuşma (thread/realtime/*) bu yetenekle açılır.
         await self._rpc("initialize", {"clientInfo": {"name": "atolye", "version": SURUM},
                                        "capabilities": {"experimentalApi": True}})
@@ -1249,6 +1493,15 @@ class CodexOturum(Oturum):
         prm = {"cwd": self.uzak_klasor if self.sunucu else str(self.cwd), "approvalPolicy": onay, "sandbox": sandbox}
         if self.model:
             prm["model"] = self.model
+        if self.asistan:
+            prm["developerInstructions"] = ASISTAN_REHBERI
+            prm["config"] = {"web_search": "live"}
+        elif self.yanki:
+            yerel = None if self.sunucu else ajan_rehberi()
+            ana = YANKI_REHBERI if self.isci == "claude" else YANKI_CODEX_REHBERI
+            prm["developerInstructions"] = ana + (f"\n\n{yerel}" if yerel else "")
+        if self.asistan and self.isci != "claude":
+            prm["developerInstructions"] += " Bu sohbette claude_sor kapalı: işleri kendin yap."
         sonuc = None
         if self.sid:
             try:
@@ -1256,15 +1509,32 @@ class CodexOturum(Oturum):
             except RuntimeError as e:
                 self.yay({"ev": "uyari", "metin": f"oturum sürdürülemedi, yeni başlıyor: {e}"})
         if sonuc is None:
-            rehber = None if self.sunucu else ajan_rehberi()
-            if rehber:
-                prm["developerInstructions"] = rehber
+            if self.yanki:
+                prm["dynamicTools"] = [CLAUDE_SOR_ARACI]
+            else:
+                rehber = None if self.sunucu else ajan_rehberi()
+                if rehber:
+                    prm["developerInstructions"] = rehber
             sonuc = await self._rpc("thread/start", prm)
         self.sid = sonuc["thread"]["id"]
         self.k.oturumlari_kaydet()
 
     async def gonder(self, metin, ekler):
+        if self.yanki and self.yazili == "claude":
+            if self.durum == "calisiyor":
+                raise RuntimeError("çalışan bir iş var; bitmesini bekle ya da durdur")
+            if not self.sunucu and not shutil.which("claude"):
+                raise RuntimeError("Claude Code kurulu değil")
+            self.tur_basi()
+            self.durum_ver("calisiyor")
+            asyncio.create_task(self._claude_yazili(metin, ekler))
+            return
         await self._hazirla()
+        if self.isci_notu and self.yanki:
+            self.isci_notu = False
+            metin = ("[Atölye notu: işi yapan değişti. " + (
+                "Bundan sonra işleri claude_sor ile Claude'a ver." if self.isci == "claude"
+                else "Bundan sonra işi sen yapıyorsun; claude_sor kapalı, Claude çalışmıyor.") + "]\n\n" + metin)
         girdi = [{"type": "text", "text": metin}]
         for e in ekler:
             if Path(e).suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
@@ -1289,6 +1559,13 @@ class CodexOturum(Oturum):
             prm["model"] = self.model
         if self.effort:
             prm["effort"] = self.effort
+        if self.yanki and (self.yazili_model or self.yazili_effort):
+            # Yazılı mesajın kendi modeli; tur bitince ses ajanının modeline dönülür.
+            if self.yazili_model:
+                prm["model"] = self.yazili_model
+            if self.yazili_effort:
+                prm["effort"] = self.yazili_effort
+            self._geri_al = True
         prm["summary"] = "auto"  # düşünme özetleri akışta görünsün
         try:
             sonuc = await self._rpc("turn/start", prm)
@@ -1318,7 +1595,7 @@ class CodexOturum(Oturum):
                "transport": {"type": "webrtc", "sdp": sdp},
                "codexResponseHandoffMode": "bemTags", "includeStartupContext": True,
                "clientManagedHandoffs": False,
-               "initialItems": [{"role": "developer", "text": ses_tanitimi(dil)}]}
+               "initialItems": [{"role": "developer", "text": ses_tanitimi(dil, self.asistan, self.yanki)}]}
         if ses:
             prm["voice"] = ses
         if model:
@@ -1359,15 +1636,131 @@ class CodexOturum(Oturum):
         return list(v.get("v3") or v.get("v2") or []) if isinstance(v, dict) else list(v)
 
     async def durdur(self):
+        if self.yardimci and self.yardimci.durum == "calisiyor":
+            await self.yardimci.durdur()
         if self.surec and self.tur:
             try:
                 await self._rpc("turn/interrupt", {"threadId": self.sid, "turnId": self.tur})
             except RuntimeError:
                 pass
 
+    async def kapat(self):
+        if self.yardimci:
+            await self.yardimci.kapat()
+            self.yardimci = None
+        await super().kapat()
+
+    async def cihaz_sec(self, cihaz: str | None):
+        """Asistan'ın denetlediği cihazı değiştir. Codex ve Claude yeniden başlar,
+        sohbet kaldığı yerden sürer (thread/resume, --resume)."""
+        if self.durum == "calisiyor":
+            raise RuntimeError("Asistan çalışırken cihaz değiştirilemez")
+        mcp = {}
+        if cihaz:
+            s = self.k.sunucular().get(cihaz)
+            if not s:
+                raise ValueError("sunucu bulunamadı")
+            mcp = await cihaz_mcp_bul(s)
+        if self.ses:
+            self.ses = False
+            self.yay({"ev": "ses", "tur": "kapandi", "neden": "cihaz değişti"}, kaydet=False)
+        await self.kapat()
+        self.cihaz, self.cihaz_mcp = cihaz, mcp
+        self.k.oturumlari_kaydet()
+        self.yay({"ev": "uyari", "metin": f"Cihaz: {cihaz or 'yok'}"
+                  + (f" · araçlar: {', '.join(mcp)}" if mcp else (" · LifeOS MCP bulunamadı" if cihaz else ""))})
+        return mcp
+
+    async def _ayar_geri(self, prm: dict):
+        try:
+            await self._rpc("thread/settings/update", {k: v for k, v in prm.items() if v is not None or k == "model"})
+        except RuntimeError:
+            pass
+
+    def bekleyen_onaylar(self) -> list[str]:
+        return list(self.onaylar) + (list(self.yardimci.onaylar) if self.yardimci else [])
+
+    async def _yardimci_al(self, model: str | None, effort: str | None) -> "ClaudeYardimci":
+        """Bu sohbetin Claude'u, istenen model ve güçle. Değiştiyse süreç yeniden başlar,
+        Claude'un sohbeti --resume ile sürer (sesle ve yazıyla verilen işler aynı sohbette)."""
+        model = model or ASISTAN_CLAUDE_MODELI
+        if not self.yardimci:
+            self.yardimci = ClaudeYardimci(self)
+        y = self.yardimci
+        if (y.model, y.effort) != (model, effort):
+            await y.kapat()
+            y.model, y.effort = model, effort
+        return y
+
+    async def _claude_yazili(self, metin: str, ekler: list[str]):
+        """Yankı'da yazılı mesaj doğrudan Claude'a: Codex hiç çalışmaz."""
+        y = self.yardimci
+        hata = None
+        try:
+            # seçilmediyse işi yapan Claude'un modeli ve gücü
+            y = await self._yardimci_al(self.yazili_model or self.claude_model,
+                                        self.yazili_effort if self.yazili_model else
+                                        (self.yazili_effort or self.claude_effort))
+            if ekler:
+                metin += "\n\nEkler (Read aracıyla bakabilirsin):\n" + "\n".join(f"- {e}" for e in ekler)
+            y.dogrudan = True
+            sonuc = await y.sor(metin)
+            if self.ses:
+                y._sese_bildir(f"Claude yazılı işi bitirdi: {kisa(sonuc, 300)}")
+        except Exception as e:
+            hata = str(e)
+        finally:
+            if y:
+                y.dogrudan = False
+        self.tur_sonu()
+        self.yay({"ev": "bitti", "hata": hata})
+        self.guncelleme = simdi()
+        self.durum_ver("bos")
+
+    async def _arac_cagrisi(self, rid, prm: dict):
+        """Codex'in bize verdiği araç (dynamicTools) çağrıldı."""
+        try:
+            if prm.get("tool") != CLAUDE_SOR or not self.yanki:
+                raise RuntimeError(f"bilinmeyen araç: {prm.get('tool')}")
+            if self.isci != "claude":
+                raise RuntimeError("Claude bu sohbette kapalı; işi kendin yap")
+            soru = str((prm.get("arguments") or {}).get("soru") or "").strip()
+            if not soru:
+                raise RuntimeError("soru boş")
+            if not self.sunucu and not shutil.which("claude"):
+                raise RuntimeError("Claude Code kurulu değil")
+            y = await self._yardimci_al(self.claude_model, self.claude_effort)
+            metin, basari = await y.sor(soru), True
+        except Exception as e:
+            metin, basari = f"Araç hata verdi: {e}", False
+        await self.yaz({"jsonrpc": "2.0", "id": rid, "result": {
+            "success": basari, "contentItems": [{"type": "inputText", "text": kisa(metin, 60000)}]}})
+
     async def onayla(self, rid, karar):
+        if self.yardimci and rid in self.yardimci.onaylar:
+            await self.yardimci.onayla(rid, karar)
+            return
         istek = self.onaylar.get(rid)
         if not istek:
+            return
+        if istek.get("_tur") == "mcp":
+            sonuc = {"action": "accept", "content": {}} if karar in ("izin", "hep") else {"action": "decline"}
+            await self.yaz({"jsonrpc": "2.0", "id": istek["_id"], "result": sonuc})
+            self.onay_kapandi(rid)
+            return
+        if istek.get("_tur") == "soru":
+            sec = istek.get("_secenek") or []
+            def bul(*sozler):
+                return next((o for o in sec if any(z in o.lower() for z in sozler)), None)
+            if karar == "hep":
+                cevap = bul("session", "oturum") or bul("allow", "run", "izin") or (sec[0] if sec else "")
+            elif karar == "izin":
+                cevap = bul("run the tool", "allow", "run", "izin", "yes") or (sec[0] if sec else "")
+            else:
+                cevap = bul("cancel", "decline", "deny", "iptal", "no") or (sec[-1] if sec else "")
+            await self.yaz({"jsonrpc": "2.0", "id": istek["_id"],
+                            "result": {"answers": {istek.get("_soru"): {"answers": [cevap]}}}})
+            self.onay_kapandi(rid)
             return
         decision = {"izin": "accept", "hep": "acceptForSession"}.get(karar, "decline")
         await self.yaz({"jsonrpc": "2.0", "id": istek["_id"], "result": {"decision": decision}})
@@ -1399,6 +1792,23 @@ class CodexOturum(Oturum):
                 self.onaylar[anahtar] = {"arac": arac, "_id": rid}
                 self.yay({"ev": "onay", "rid": anahtar, "arac": arac, "ozet": kisa(ozet, 300),
                           "girdi": kisa(girdi, 60000), "neden": prm.get("reason") or ""})
+            elif yontem == "item/tool/call":
+                asyncio.create_task(self._arac_cagrisi(rid, prm))
+            elif yontem == "mcpServer/elicitation/request" and prm.get("mode") in ("form", "openai/form", "openaiForm"):
+                # MCP aracı onayı (ör. LifeOS'un değiştiren araçları) ya da sunucunun sorusu
+                anahtar = f"cx{rid}"
+                self.onaylar[anahtar] = {"arac": f"MCP: {prm.get('serverName') or '?'}", "_id": rid, "_tur": "mcp"}
+                self.yay({"ev": "onay", "rid": anahtar, "arac": f"MCP: {prm.get('serverName') or '?'}",
+                          "ozet": kisa(prm.get("message") or "", 300), "girdi": kisa(prm, 60000), "neden": ""})
+            elif yontem == "item/tool/requestUserInput" and prm.get("questions"):
+                q = prm["questions"][0]
+                secenek = [o.get("label", "") for o in q.get("options") or []]
+                anahtar = f"cx{rid}"
+                self.onaylar[anahtar] = {"arac": q.get("header") or "Soru", "_id": rid, "_tur": "soru",
+                                         "_soru": q.get("id"), "_secenek": secenek}
+                self.yay({"ev": "onay", "rid": anahtar, "arac": q.get("header") or "Onay",
+                          "ozet": kisa(q.get("question") or "", 300),
+                          "girdi": kisa({"seçenekler": secenek}, 4000), "neden": ""})
             else:
                 await self.yaz({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "desteklenmiyor"}})
             return
@@ -1422,8 +1832,13 @@ class CodexOturum(Oturum):
                 yollar = [goreli(c.get("path", ""), self.cwd) for c in oge.get("changes") or []]
                 self.yay({"ev": "arac", "aid": oge.get("id"), "ad": "Düzenle", "ozet": ", ".join(yollar),
                           "girdi": kisa({"changes": oge.get("changes")}, 60000)})
+            elif tur == "dynamicToolCall" and oge.get("tool") == CLAUDE_SOR:
+                soru = (oge.get("arguments") or {}).get("soru") if isinstance(oge.get("arguments"), dict) else None
+                self.yay({"ev": "arac", "aid": oge.get("id"), "ad": "Claude'a sor",
+                          "ozet": kisa(soru or "", 200), "girdi": kisa(oge.get("arguments"))})
             elif tur in ("mcpToolCall", "webSearch", "dynamicToolCall"):
-                self.yay({"ev": "arac", "aid": oge.get("id"), "ad": tur,
+                ad = {"mcpToolCall": oge.get("server") or "MCP", "webSearch": "Web araması"}.get(tur, tur)
+                self.yay({"ev": "arac", "aid": oge.get("id"), "ad": ad,
                           "ozet": kisa(oge.get("query") or oge.get("tool") or "", 200), "girdi": kisa(oge)})
         elif yontem == "item/completed":
             self._ogeler.pop(oge.get("id"), None)
@@ -1438,8 +1853,12 @@ class CodexOturum(Oturum):
                     self.dosya(c.get("path"))
                 self.yay({"ev": "arac_sonuc", "aid": oge.get("id"), "hata": oge.get("status") == "failed", "cikti": ""})
             elif tur in ("mcpToolCall", "webSearch", "dynamicToolCall"):
-                self.yay({"ev": "arac_sonuc", "aid": oge.get("id"), "hata": oge.get("status") == "failed",
-                          "cikti": kisa(oge.get("result") or oge.get("error") or "")})
+                cikti = oge.get("result") or oge.get("error") or ""
+                if tur == "dynamicToolCall":
+                    cikti = "\n".join(c.get("text", "") for c in oge.get("contentItems") or [] if isinstance(c, dict))
+                self.yay({"ev": "arac_sonuc", "aid": oge.get("id"),
+                          "hata": oge.get("status") == "failed" or oge.get("success") is False,
+                          "cikti": kisa(cikti)})
             elif tur == "reasoning":
                 parcalar = oge.get("summary") or oge.get("content") or []
                 metin = "\n\n".join(p if isinstance(p, str) else (p or {}).get("text", "") for p in parcalar)
@@ -1511,6 +1930,10 @@ class CodexOturum(Oturum):
             elif t.get("status") == "interrupted":
                 hata = "durduruldu"
             self.tur = None
+            if self._geri_al:
+                self._geri_al = False
+                geri = {"threadId": self.sid, "model": self.model, "effort": self.effort}
+                asyncio.create_task(self._ayar_geri(geri))
             self.tur_sonu()
             self.yay({"ev": "bitti", "hata": hata})
             self.guncelleme = simdi()
@@ -1526,7 +1949,24 @@ SES_DILLERI = {
 }
 
 
-def ses_tanitimi(dil: str | None) -> str:
+def ses_tanitimi(dil: str | None, asistan: bool = False, yanki: bool = False) -> str:
+    if asistan:
+        return (
+            "Atölye uygulamasında kullanıcının genel asistanı olarak sesli konuşuyorsun; bir projede değilsin. "
+            + SES_DILLERI.get(dil or "tr", SES_DILLERI["tr"])
+            + " Kısa ve doğal konuş. Bilgi, ajanda, not, makinelerin durumu gibi işleri Codex'e devret; "
+            "Codex'in MCP araçları (LifeOS, LifeOS Folio) ve web araması var, ağır işleri o da Claude'a verir. "
+            "Uzun işlerde kullanıcıya beklediğini kısaca söyle. Onay gereken adımları kullanıcı ekrandan onaylar."
+        )
+    if yanki:
+        return (
+            "Atölye uygulamasında, bir yazılım projesinde kullanıcıyla sesli konuşuyorsun (Yankı modu). "
+            + SES_DILLERI.get(dil or "tr", SES_DILLERI["tr"])
+            + " Kısa ve doğal konuş; kod, yol ya da uzun çıktı okuma, özetle. İstenen her işi Codex'e "
+            "devret; Codex dosya düzenleme ve üretme işlerini Claude'a yaptırır, bu dakikalar sürebilir, "
+            "kullanıcıya beklediğini kısaca söyle. Yapılanlar ekranda sohbette görünür; onayları kullanıcı "
+            "ekrandan verir."
+        )
     return (
         "Atölye uygulamasında, telefondaki bir yazılım projesinde kullanıcıyla sesli konuşuyorsun. "
         + SES_DILLERI.get(dil or "tr", SES_DILLERI["tr"])
@@ -2002,6 +2442,22 @@ class Kopru:
             if ajan not in SURUCULER:
                 raise ValueError("bilinmeyen ajan")
             sunucu = m.get("sunucu") or None
+            if m.get("asistan"):
+                if ajan != "codex":
+                    raise ValueError("Asistan Codex ile çalışır")
+                ASISTAN_KLASORU.mkdir(parents=True, exist_ok=True)
+                o = CodexOturum(self, {"id": uuid.uuid4().hex[:12], "ajan": ajan, "cwd": str(ASISTAN_KLASORU),
+                                       "mod": m.get("mod", "otomatik"), "model": m.get("model") or None,
+                                       "effort": m.get("effort") or None, "baslik": "Asistan", "asistan": True,
+                                       "claude_model": m.get("claude_model") or None,
+                                       "claude_effort": m.get("claude_effort") or None,
+                                       "isci": m.get("isci") or None,
+                                       **{k: m.get(k) or None for k in YANKI_ALANLARI}})
+                if m.get("cihaz"):  # bağlanılamazsa oturum açılmaz
+                    await o.cihaz_sec(m["cihaz"])
+                self.oturumlar[o.id] = o
+                self.oturumlari_kaydet()
+                return {"oturum": o.ozet()}
             if sunucu:
                 if sunucu not in self.sunucular():
                     raise ValueError("sunucu bulunamadı")
@@ -2014,9 +2470,15 @@ class Kopru:
                 if not cwd.is_dir():
                     raise ValueError("klasör yok")
                 baslik = m.get("baslik")
+            if m.get("yanki") and ajan != "codex":
+                raise ValueError("Yankı modu Codex ile çalışır")
             o = SURUCULER[ajan](self, {"id": uuid.uuid4().hex[:12], "ajan": ajan, "cwd": str(cwd),
                                         "mod": m.get("mod", "otomatik"), "model": m.get("model") or None,
-                                        "effort": m.get("effort") or None,
+                                        "effort": m.get("effort") or None, "yanki": bool(m.get("yanki")),
+                                        "claude_model": m.get("claude_model") or None,
+                                        "claude_effort": m.get("claude_effort") or None,
+                                        "isci": m.get("isci") or None,
+                                        **{k: m.get(k) or None for k in YANKI_ALANLARI},
                                         "baslik": baslik, "sunucu": sunucu, "uzak_klasor": uzak})
             self.oturumlar[o.id] = o
             self.oturumlari_kaydet()
@@ -2034,8 +2496,9 @@ class Kopru:
         if op == "gecmis":
             o = self._oturum(m)
             olaylar = self.gecmis(o.id)
+            bekleyen = o.bekleyen_onaylar() if isinstance(o, CodexOturum) else list(o.onaylar)
             return {"oturum": o.ozet(), "olaylar": olaylar,
-                    "bekleyen": [r for r in o.onaylar if any(e.get("rid") == r for e in olaylar)]}
+                    "bekleyen": [r for r in bekleyen if any(e.get("rid") == r for e in olaylar)]}
         if op == "gonder":
             o = self._oturum(m)
             metin = (m.get("metin") or "").strip()
@@ -2052,10 +2515,47 @@ class Kopru:
         if op == "durdur":
             await self._oturum(m).durdur()
             return {}
+        if op == "yanki_ayar":
+            o = self._oturum(m)
+            if not isinstance(o, CodexOturum) or not o.yanki:
+                raise ValueError("bu oturum Yankı modunda değil")
+            if o.yardimci and o.yardimci.durum == "calisiyor":
+                raise RuntimeError("Claude çalışırken değiştirilemez")
+            if o.durum == "calisiyor" and m.get("isci") not in (None, o.isci):
+                raise RuntimeError("çalışırken işi yapan değiştirilemez")
+            for k in ("claude_model", "claude_effort", "yazili_model", "yazili_effort"):
+                if k in m:
+                    setattr(o, k, (m.get(k) or "").strip() or None)
+            if m.get("yazili") in ("claude", "codex"):
+                o.yazili = m["yazili"]
+            if m.get("durum_notu") in ("kapali", "onemli", "hepsi"):
+                o.durum_notu = m["durum_notu"]
+            if m.get("isci") in ("claude", "codex") and m["isci"] != o.isci:
+                o.isci = m["isci"]
+                # Codex'in yönergesi değişir: yeniden başlar, thread/resume ile kaldığı yerden sürer
+                if o.ses:
+                    o.ses = False
+                    o.yay({"ev": "ses", "tur": "kapandi", "neden": "işi yapan değişti"}, kaydet=False)
+                await o.kapat()
+                o.isci_notu = True  # eski konuşma Codex'i yanıltmasın: sonraki mesaja not düşülür
+                o.yay({"ev": "uyari", "metin": "İşi yapan: " + ("Claude" if o.isci == "claude" else "Codex")})
+            if o.yardimci:  # yeni model bir sonraki işte; Claude sohbeti --resume ile sürer
+                await o.yardimci.kapat()
+                o.yardimci = None
+            self.oturumlari_kaydet()
+            self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": o.ozet()})
+            return {"oturum": o.ozet()}
+        if op == "asistan_cihaz":
+            o = self._oturum(m)
+            if not isinstance(o, CodexOturum) or not o.asistan:
+                raise ValueError("bu bir Asistan oturumu değil")
+            mcp = await o.cihaz_sec(m.get("cihaz") or None)
+            self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": o.ozet()})
+            return {"oturum": o.ozet(), "araclar": list(mcp)}
         if op in ("ses_baslat", "ses_metin", "ses_bitir", "ses_sesleri"):
             o = self._oturum(m)
-            if not isinstance(o, CodexOturum) or o.sunucu:
-                raise ValueError("sesli konuşma yalnızca bu cihazdaki Codex oturumlarında var")
+            if not isinstance(o, CodexOturum):
+                raise ValueError("sesli konuşma yalnızca Codex oturumlarında var")
             if op == "ses_baslat":
                 await o.ses_baslat(m.get("sdp") or "", m.get("ses") or None, m.get("dil"),
                                    (m.get("model") or "").strip() or None)
@@ -2229,7 +2729,7 @@ class Kopru:
             s = self.sunucular().get(m.get("ad"))
             if not s:
                 raise ValueError("sunucu bulunamadı")
-            kod, out, err = await calistir(ssh_hedef(s) + ["--", "bash -lc 'echo ATOLYE_OK; command -v claude codex git'"], sure=25)
+            kod, out, err = await calistir(ssh_hedef(s) + ["--", "bash -lc 'echo ATOLYE_OK; command -v claude codex git lifeos lifeos-folio lifeos_folio'"], sure=25)
             if kod != 0 or "ATOLYE_OK" not in out:
                 raise RuntimeError(err.strip() or "bağlanılamadı")
             araclar = [Path(x).name for x in out.split() if x.startswith("/")]
