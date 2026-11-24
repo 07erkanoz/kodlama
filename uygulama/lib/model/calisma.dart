@@ -84,7 +84,10 @@ class Calisma extends ChangeNotifier {
   String? onizlenen;
 
   /// Geniş ekranda sağdaki dosya paneli açık mı.
-  bool dosyaPaneli = true;
+  late bool dosyaPaneli = ayarlar.dosyaPaneli;
+
+  /// Orta ve geniş ekranda soldaki oturum listesi açık mı.
+  late bool kenarCubugu = ayarlar.kenarCubugu;
   String? hata;
 
   BaglantiDurumu get baglanti => istemci.durum.value;
@@ -466,7 +469,14 @@ class Calisma extends ChangeNotifier {
 
   void dosyaPaneliDegistir() {
     dosyaPaneli = !dosyaPaneli;
+    ayarlar.dosyaPaneli = dosyaPaneli;
     if (!dosyaPaneli) onizlenen = null;
+    notifyListeners();
+  }
+
+  void kenarCubuguDegistir() {
+    kenarCubugu = !kenarCubugu;
+    ayarlar.kenarCubugu = kenarCubugu;
     notifyListeners();
   }
 

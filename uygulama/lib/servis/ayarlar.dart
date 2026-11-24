@@ -37,6 +37,12 @@ class Ayarlar {
   bool get bildirimIzniSoruldu => _p.getBool('bildirimIzniSoruldu') ?? false;
   set bildirimIzniSoruldu(bool v) => _p.setBool('bildirimIzniSoruldu', v);
 
+  /// Geniş ekranlarda (tablet, açık katlanır) yan panellerin açık/kapalı hali.
+  bool get kenarCubugu => _p.getBool('kenarCubugu') ?? true;
+  set kenarCubugu(bool v) => _p.setBool('kenarCubugu', v);
+  bool get dosyaPaneli => _p.getBool('dosyaPaneli') ?? true;
+  set dosyaPaneli(bool v) => _p.setBool('dosyaPaneli', v);
+
   bool get kurulumBitti => _p.getBool('kurulumBitti') ?? false;
   set kurulumBitti(bool v) => _p.setBool('kurulumBitti', v);
 

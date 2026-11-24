@@ -40,7 +40,11 @@ class IkiPanel extends StatelessWidget {
     required this.sol,
     required this.sag,
     this.solGenislik = 320,
+    this.solAcik = true,
   });
+
+  /// Kapalıysa yalnız sağ panel görünür (menteşesiz ekranda).
+  final bool solAcik;
 
   final Widget sol;
   final Widget sag;
@@ -65,10 +69,59 @@ class IkiPanel extends StatelessWidget {
     }
     return Row(
       children: [
-        SizedBox(width: solGenislik, child: sol),
-        ayrac,
+        Kayan(genislik: solAcik ? solGenislik : 0, child: sol),
+        if (solAcik) ayrac,
         Expanded(child: sag),
       ],
+    );
+  }
+}
+
+/// Açılıp kapanan yan panel: genişliği yumuşakça değişir, içerik açık
+/// genişliğinde kalır (kayarak gizlenir), kapalıyken çizilmez.
+class Kayan extends StatefulWidget {
+  const Kayan({
+    super.key,
+    required this.genislik,
+    required this.child,
+    this.sagda = false,
+  });
+  final double genislik;
+  final Widget child;
+
+  /// Sağdaki panel sağa, soldaki sola doğru kayar.
+  final bool sagda;
+
+  @override
+  State<Kayan> createState() => _KayanState();
+}
+
+class _KayanState extends State<Kayan> {
+  late double _acik = widget.genislik > 0 ? widget.genislik : 280;
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.genislik > 0) _acik = widget.genislik;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: widget.genislik),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      builder: (context, g, cocuk) => g < 1
+          ? const SizedBox.shrink()
+          : ClipRect(
+              child: SizedBox(
+                width: g,
+                child: OverflowBox(
+                  alignment: widget.sagda
+                      ? Alignment.centerLeft
+                      : Alignment.centerRight,
+                  minWidth: _acik,
+                  maxWidth: _acik,
+                  child: cocuk,
+                ),
+              ),
+            ),
+      child: widget.child,
     );
   }
 }

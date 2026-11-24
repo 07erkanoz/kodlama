@@ -48,6 +48,7 @@ PreferredSizeWidget _ustCubuk(
   BuildContext context,
   Calisma c, {
   bool menu = false,
+  bool kenar = false,
   _DosyaDugmesi dosyalar = _DosyaDugmesi.yok,
 }) {
   final s = c.secili;
@@ -56,8 +57,18 @@ PreferredSizeWidget _ustCubuk(
   return AppBar(
     automaticallyImplyLeading: false,
     toolbarHeight: 56,
-    titleSpacing: menu ? 0 : 20,
-    leading: menu
+    titleSpacing: menu || kenar ? 0 : 20,
+    leading: kenar
+        ? IconButton(
+            tooltip: c.kenarCubugu
+                ? 'Oturum listesini gizle'
+                : 'Oturum listesini göster',
+            onPressed: c.kenarCubuguDegistir,
+            icon: Icon(
+              c.kenarCubugu ? Icons.menu_open_rounded : Icons.menu_rounded,
+            ),
+          )
+        : menu
         ? Builder(
             builder: (context) => IconButton(
               tooltip: 'Oturumlar',
@@ -263,9 +274,15 @@ class _Orta extends StatelessWidget {
       endDrawer: _dosyaCekmecesi(context, c, 380),
       body: IkiPanel(
         solGenislik: 268,
+        solAcik: c.kenarCubugu,
         sol: OturumListesi(calisma: c),
         sag: Scaffold(
-          appBar: _ustCubuk(context, c, dosyalar: _DosyaDugmesi.cekmece),
+          appBar: _ustCubuk(
+            context,
+            c,
+            kenar: true,
+            dosyalar: _DosyaDugmesi.cekmece,
+          ),
           body: _govde(c),
         ),
       ),
@@ -318,18 +335,28 @@ class _Genis extends StatelessWidget {
     return Scaffold(
       body: Row(
         children: [
-          SizedBox(width: 280, child: OturumListesi(calisma: c)),
-          ayrac,
+          Kayan(
+            genislik: c.kenarCubugu ? 280 : 0,
+            child: OturumListesi(calisma: c),
+          ),
+          if (c.kenarCubugu) ayrac,
           Expanded(
             child: Scaffold(
-              appBar: _ustCubuk(context, c, dosyalar: _DosyaDugmesi.panel),
+              appBar: _ustCubuk(
+                context,
+                c,
+                kenar: true,
+                dosyalar: _DosyaDugmesi.panel,
+              ),
               body: _govde(c, dosyaAc: c.onizle),
             ),
           ),
-          if (sagAcik) ...[
-            ayrac,
-            SizedBox(width: sagGenislik, child: _sagPanel(c)),
-          ],
+          if (sagAcik) ayrac,
+          Kayan(
+            sagda: true,
+            genislik: sagAcik ? sagGenislik : 0,
+            child: c.secili == null ? const SizedBox.shrink() : _sagPanel(c),
+          ),
         ],
       ),
     );
