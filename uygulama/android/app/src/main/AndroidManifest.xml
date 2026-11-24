@@ -11,6 +11,12 @@
     <!-- Codex ile sesli konuşma (WebRTC) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- WebRTC bağlantı kurarken ağ durumunu okur (getActiveNetworkInfo); bu izin
+         yoksa SecurityException ile uygulama kapanıyordu. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
+    <!-- Kulaklık (Bluetooth) ses yönlendirmesi; Android 11 ve öncesi. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
     <!-- Ajan çalışırken uygulama arka planda kapanmasın: yalnız iş sürerken açık kalan
          ön plan servisi. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
