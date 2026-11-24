@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Yalnız indirilen Termux APK'sı yükleyiciye verilir. -->
+<!-- Yükleyiciye yalnız indirilen APK'lar verilir. -->
 <paths>
     <cache-path name="termux" path="termux/"/>
+    <!-- Bulutta derlenip indirilen APK (Git paneli › Bulutta derleme). -->
+    <cache-path name="derleme" path="derleme/"/>
 </paths>

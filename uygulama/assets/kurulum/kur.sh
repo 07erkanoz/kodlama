@@ -267,6 +267,9 @@ faz_paketler() {
   adim "Geliştirme araçları kuruluyor (Node.js, Git, GitHub CLI, OpenSSH)"
   "${APT[@]}" install nodejs-lts git gh openssh
   tamam "node $(node --version), $(git --version | cut -d' ' -f3)"
+  # Bulutta APK derlemesinin imza anahtarı için openssl komutu (paket adı sürüme göre değişti).
+  command -v openssl >/dev/null 2>&1 || "${APT[@]}" install openssl-tool 2>/dev/null \
+    || "${APT[@]}" install openssl 2>/dev/null || uyar "openssl kurulamadı (APK imzası için gerekir)"
 
   IFS=',' read -ra SECILEN <<< "$AJANLAR"
   BASARISIZ=()

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../model/sohbet.dart';
+import 'derleme_bolumu.dart';
 
 /// Oturumun klasöründeki Git deposu: dal, değişiklikler (diff), commit,
 /// push/pull ve GitHub'da PR. Ajanın bir turu bitince kendiliğinden yenilenir.
@@ -284,6 +285,8 @@ class _GitPaneliState extends State<GitPaneli> {
                 ),
             ],
           ),
+          if (github && ghGiris && c.yetenek('derleme'))
+            DerlemeBolumu(calisma: c, cwd: cwd, degisti: _yenile),
           const SizedBox(height: 16),
           Text(
             dosyalar.isEmpty

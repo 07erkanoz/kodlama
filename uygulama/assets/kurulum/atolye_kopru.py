@@ -31,6 +31,7 @@ import secrets
 import shlex
 import socket
 import shutil
+import tempfile
 import signal
 import sys
 import time
@@ -48,7 +49,7 @@ from websockets.http11 import Response
 SURUM = "0.9.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -465,6 +466,192 @@ async def gh_durum() -> dict:
         return {"kurulu": False}
     kod, out, _ = await calistir(["gh", "api", "user", "--jq", ".login"], sure=20)
     return {"kurulu": True, "giris": kod == 0, "kullanici": out.strip() if kod == 0 else None}
+
+
+# ---------------------------------------------------------------- bulutta derleme
+#
+# Telefonda Android SDK yok: Flutter APK'sı kullanıcının GitHub Actions'ında
+# derlenir (gh ile tetiklenir, izlenir, indirilir), Atölye indirip Android'in
+# yükleme ekranını açar. APK her derlemede aynı anahtarla imzalansın diye
+# köprü bir kez PKCS12 anahtarı üretir (yedeği ~/.atolye/imza/), deponun
+# gizli değişkenlerine koyar; iş akışı derlenen APK'yı apksigner ile imzalar.
+
+DERLEME_AKISI = ".github/workflows/atolye-apk.yml"
+IMZA_KLASORU = EV / "imza"
+
+DERLEME_SABLONU = """name: Atölye APK
+
+# Atölye'nin (ya da ajanın) "gh workflow run atolye-apk.yml" ile başlattığı
+# derleme: arm64 APK'yı derler, Atölye anahtarıyla imzalar, indirilebilir
+# "apk" yapıtı olarak bırakır. Atölye onu indirip telefona kurar.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atolye-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: __KLASOR__
+    env:
+      IMZA_VAR: ${{ secrets.ATOLYE_IMZA_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: APK derle (arm64)
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Atölye anahtarıyla imzala
+        if: env.IMZA_VAR == 'true'
+        env:
+          IMZA: ${{ secrets.ATOLYE_IMZA_P12 }}
+          SIFRE: ${{ secrets.ATOLYE_IMZA_SIFRE }}
+        run: |
+          echo "$IMZA" | base64 -d > "$RUNNER_TEMP/imza.p12"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/imza.p12" --ks-type PKCS12 \\
+            --ks-pass env:SIFRE build/app/outputs/flutter-apk/app-release.apk
+          rm -f "$RUNNER_TEMP/imza.p12"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: __KLASOR__/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
+"""
+
+
+def flutter_klasoru(cwd: Path) -> str | None:
+    """Depoda Flutter uygulamasının klasörü (kök ya da bir alt klasör); yoksa None."""
+    adaylar = [cwd / "pubspec.yaml"] + sorted(cwd.glob("*/pubspec.yaml")) + sorted(cwd.glob("*/*/pubspec.yaml"))
+    for a in adaylar:
+        try:
+            if (a.parent / "android").is_dir() and "flutter" in a.read_text(errors="replace"):
+                yol = a.parent.relative_to(cwd).as_posix()
+                return "." if yol in ("", ".") else yol
+        except OSError:
+            continue
+    return None
+
+
+async def depo_adi(cwd: Path) -> str | None:
+    kod, out, _ = await calistir(["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], cwd, 30)
+    return out.strip() if kod == 0 and out.strip() else None
+
+
+async def derleme_durum(cwd: Path) -> dict:
+    flutter = flutter_klasoru(cwd)
+    akis = (cwd / DERLEME_AKISI).is_file()
+    d = {"flutter": flutter, "akis": akis, "akis_yolu": DERLEME_AKISI, "calismalar": [], "imza": False}
+    if not shutil.which("gh"):
+        d["hata"] = "GitHub CLI (gh) kurulu değil"
+        return d
+    depo = await depo_adi(cwd)
+    d["depo"] = depo
+    if not depo:
+        return d
+    kod, out, err = await calistir(
+        ["gh", "run", "list", "--workflow", Path(DERLEME_AKISI).name, "-L", "8", "--json",
+         "databaseId,displayTitle,status,conclusion,createdAt,updatedAt,headBranch,event,url"], cwd, 40)
+    if kod == 0:
+        d["calismalar"] = json.loads(out or "[]")
+    elif akis and "could not find" not in (err + out).lower():
+        d["uyari"] = kisa((err or out).strip(), 400)
+    kod, out, _ = await calistir(["gh", "secret", "list", "--json", "name", "--jq", ".[].name"], cwd, 30)
+    d["imza"] = kod == 0 and "ATOLYE_IMZA_P12" in out.split()
+    d["yerel_imza"] = (IMZA_KLASORU / f"{depo.replace('/', '__')}.p12").is_file()
+    return d
+
+
+def derleme_sablonu_yaz(cwd: Path) -> dict:
+    klasor = flutter_klasoru(cwd)
+    if not klasor:
+        raise ValueError("bu depoda Android klasörü olan bir Flutter uygulaması bulunamadı")
+    hedef = cwd / DERLEME_AKISI
+    if hedef.exists():
+        return {"yol": str(hedef), "vardi": True}
+    hedef.parent.mkdir(parents=True, exist_ok=True)
+    hedef.write_text(DERLEME_SABLONU.replace("__KLASOR__", klasor))
+    return {"yol": str(hedef), "vardi": False}
+
+
+async def derleme_imza(cwd: Path) -> dict:
+    """Depo için kalıcı imza anahtarı: yoksa üret (yedeği ~/.atolye/imza/), GitHub gizlilerine koy."""
+    depo = await depo_adi(cwd)
+    if not depo:
+        raise RuntimeError("depo GitHub'da bulunamadı (gh girişi ve origin gerekli)")
+    if not shutil.which("openssl"):
+        raise RuntimeError("openssl komutu yok. Termux'ta: pkg install openssl-tool (ya da openssl)")
+    IMZA_KLASORU.mkdir(parents=True, exist_ok=True)
+    os.chmod(IMZA_KLASORU, 0o700)
+    ad = depo.replace("/", "__")
+    p12, sifre_dosyasi = IMZA_KLASORU / f"{ad}.p12", IMZA_KLASORU / f"{ad}.sifre"
+    if not p12.is_file():
+        sifre = secrets.token_urlsafe(24)
+        with tempfile.TemporaryDirectory() as g:
+            anahtar, sertifika = Path(g) / "k.pem", Path(g) / "c.pem"
+            _sonuc(*await calistir(["openssl", "req", "-x509", "-newkey", "rsa:3072", "-nodes", "-sha256",
+                                     "-days", "10000", "-subj", "/CN=Atolye/O=" + re.sub(r"[^\w.-]", "", depo),
+                                     "-keyout", str(anahtar), "-out", str(sertifika)], sure=120))
+            _sonuc(*await calistir(["openssl", "pkcs12", "-export", "-inkey", str(anahtar), "-in", str(sertifika),
+                                     "-name", "atolye", "-out", str(p12), "-passout", "pass:" + sifre], sure=60))
+        sifre_dosyasi.write_text(sifre)
+        os.chmod(p12, 0o600)
+        os.chmod(sifre_dosyasi, 0o600)
+    sifre = sifre_dosyasi.read_text().strip()
+    ham = base64.b64encode(p12.read_bytes())
+    _sonuc(*await calistir(["gh", "secret", "set", "ATOLYE_IMZA_P12", "--repo", depo], sure=60, girdi=ham))
+    _sonuc(*await calistir(["gh", "secret", "set", "ATOLYE_IMZA_SIFRE", "--repo", depo], sure=60,
+                           girdi=sifre.encode()))
+    return {"yedek": str(p12)}
+
+
+async def derleme_baslat(cwd: Path) -> dict:
+    if not (cwd / DERLEME_AKISI).is_file():
+        raise ValueError("önce derleme iş akışını ekle")
+    _, dal, _ = await calistir(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd, 15)
+    args = ["gh", "workflow", "run", Path(DERLEME_AKISI).name]
+    if dal.strip() and dal.strip() != "HEAD":
+        args += ["--ref", dal.strip()]
+    kod, out, err = await calistir(args, cwd, 60)
+    if kod != 0:
+        hata = (err or out).strip()
+        if "could not find" in hata.lower() or "not found" in hata.lower():
+            hata = "iş akışı GitHub'da yok: önce commit edip push et. (" + kisa(hata, 300) + ")"
+        raise RuntimeError(hata)
+    return {"cikti": (out + err).strip()}
+
+
+async def derleme_indir(cwd: Path, calisma: int) -> dict:
+    hedef = EV / "derlemeler" / str(int(calisma))
+    if hedef.exists():
+        shutil.rmtree(hedef)
+    hedef.mkdir(parents=True)
+    _sonuc(*await calistir(["gh", "run", "download", str(int(calisma)), "-n", "apk", "-D", str(hedef)], cwd, 600))
+    apkler = sorted(str(a) for a in hedef.rglob("*.apk"))
+    if not apkler:
+        raise RuntimeError("yapıtta APK yok")
+    return {"apkler": [{"yol": a, "boyut": Path(a).stat().st_size} for a in apkler]}
 
 
 SSH_ANAHTAR = Path.home() / ".ssh" / "id_ed25519"
@@ -1653,6 +1840,20 @@ class Kopru:
             return self.oku(m["yol"])
         if op == "belge":
             return belge_oku(guvenli_yol(m["yol"]))
+
+        # --- bulutta derleme
+        if op.startswith("derleme_"):
+            cwd = guvenli_yol(m.get("cwd") or KOK)
+            if op == "derleme_durum":
+                return await derleme_durum(cwd)
+            if op == "derleme_sablon":
+                return derleme_sablonu_yaz(cwd)
+            if op == "derleme_imza":
+                return await derleme_imza(cwd)
+            if op == "derleme_baslat":
+                return await derleme_baslat(cwd)
+            if op == "derleme_indir":
+                return await derleme_indir(cwd, int(m["calisma"]))
 
         # --- git
         if op.startswith("git_"):

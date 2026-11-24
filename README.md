@@ -97,6 +97,12 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   iş Codex'e devredilir, Codex aynı projede çalışır, araçlar ve onaylar sohbette görünür (onaylar
   dokunarak verilir). "Kapat/yeter/görüşürüz" ya da 60 sn sessizlik konuşmayı bitirir.
   Codex'in deneysel API'sidir (`experimentalApi`); yalnızca bu cihazdaki Codex oturumlarında.
+- **Bulutta APK derleme:** Git panelinde, GitHub'daki bir Flutter projesi için. "İş akışını ekle"
+  `.github/workflows/atolye-apk.yml` yazar (arm64 release APK, `apk` yapıtı); "İmza anahtarını
+  kur" openssl ile kalıcı bir PKCS12 anahtarı üretir (yedeği `~/.atolye/imza/`), `gh secret set`
+  ile depoya koyar, iş akışı APK'yı `apksigner` ile imzalar; böylece yeni sürüm eskisinin
+  üstüne kurulur. "Derle" `gh workflow run` ile başlatır (ajan da başlatabilir); bitenler
+  listede "Kur" ile indirilir (`gh run download`) ve Android'in yükleme ekranı açılır.
 
 ## Ekran düzenleri
 

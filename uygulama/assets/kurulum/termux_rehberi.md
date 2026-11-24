@@ -67,4 +67,11 @@ projeye gereken araçları kurmak senin işin; kullanıcı terminal kullanmak zo
      Küçük Kotlin/Java uygulamaları için Termux'ta `aapt2`, `d8`, `apksigner`, `gradle`,
      `openjdk-21` paketleri var; Flutter APK için en sağlam yol GitHub Actions ile bulutta
      derlemek (kullanıcının GitHub'ı `gh` ile bağlı olabilir).
+- **Atölye'nin bulutta derlemesi:** Flutter APK'sı için Atölye'nin hazır iş akışı
+  `.github/workflows/atolye-apk.yml`'dir (Atölye › Git paneli › Bulutta derleme ekler; kullanıcı
+  orada imza anahtarını da kurar). Dosya depodaysa ve push edildiyse derlemeyi sen başlatabilirsin:
+  `gh workflow run atolye-apk.yml --ref <dal>`, izlemek için `gh run watch` ya da
+  `gh run list --workflow atolye-apk.yml`. Başarılı derlemenin APK'sını kullanıcı Atölye'den
+  tek dokunuşla indirip kurar; sen kurmaya çalışma. İş akışı yoksa kendin yazma, kullanıcıya
+  Git panelinden eklemesini söyle (ya da onayıyla aynı şablonu oluştur).
 - Hangi yolu seçtiğini ve nedenini kullanıcıya söyle; deneyip olmazsa sonraki yolu dene.
