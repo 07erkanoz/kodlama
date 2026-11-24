@@ -54,7 +54,7 @@ from websockets.http11 import Response
 SURUM = "0.9.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -471,6 +471,105 @@ async def gh_durum() -> dict:
         return {"kurulu": False}
     kod, out, _ = await calistir(["gh", "api", "user", "--jq", ".login"], sure=20)
     return {"kurulu": True, "giris": kod == 0, "kullanici": out.strip() if kod == 0 else None}
+
+
+# ---------------------------------------------------------------- MCP sunucuları
+#
+# Ajanların MCP sunucuları her CLI'ın kendi komutuyla eklenip silinir
+# (claude mcp add/remove, codex mcp add/remove); liste için Claude'un
+# ayar dosyası okunur, Codex'e `codex mcp list --json` sorulur. Ortam
+# değişkenlerinin ve başlıkların DEĞERLERİ hiçbir zaman döndürülmez.
+
+MCP_AD = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def _mcp_ozet(ad: str, v: dict, kapsam: str) -> dict:
+    tur = v.get("type") or ("http" if v.get("url") else "stdio")
+    return {"ad": ad, "kapsam": kapsam, "tur": tur, "komut": v.get("command"),
+            "argumanlar": [str(a) for a in v.get("args") or []], "url": v.get("url"),
+            "ortam": sorted((v.get("env") or {}).keys()), "basliklar": sorted((v.get("headers") or {}).keys())}
+
+
+def claude_mcp_listesi(cwd: Path | None) -> list[dict]:
+    ev = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home())
+    dosya = ev / ".claude.json"
+    try:
+        d = json.loads(dosya.read_text())
+    except (OSError, ValueError):
+        d = {}
+    liste = [_mcp_ozet(a, v, "user") for a, v in (d.get("mcpServers") or {}).items()]
+    if cwd:
+        proje = (d.get("projects") or {}).get(str(cwd)) or {}
+        liste += [_mcp_ozet(a, v, "local") for a, v in (proje.get("mcpServers") or {}).items()]
+        try:
+            pj = json.loads((cwd / ".mcp.json").read_text())
+            liste += [_mcp_ozet(a, v, "project") for a, v in (pj.get("mcpServers") or {}).items()]
+        except (OSError, ValueError):
+            pass
+    return liste
+
+
+async def codex_mcp_listesi() -> list[dict]:
+    kod, out, err = await calistir([shutil.which("codex") or "codex", "mcp", "list", "--json"], sure=60)
+    if kod != 0:
+        raise RuntimeError(kisa((err or out).strip(), 400) or "codex mcp list başarısız")
+    liste = []
+    for x in json.loads(out or "[]"):
+        t = x.get("transport") or {}
+        o = _mcp_ozet(x.get("name", "?"), {"type": t.get("type"), "command": t.get("command"),
+                                            "args": t.get("args"), "url": t.get("url"),
+                                            "env": t.get("env"), "headers": t.get("http_headers")}, "user")
+        o["etkin"] = x.get("enabled", True)
+        o["giris"] = x.get("auth_status")
+        liste.append(o)
+    return liste
+
+
+async def mcp_islem(op: str, m: dict) -> dict:
+    ajan = m.get("ajan")
+    if ajan not in ("claude", "codex"):
+        raise ValueError("ajan claude ya da codex olmalı")
+    if not shutil.which(ajan):
+        raise RuntimeError(f"{ajan} kurulu değil")
+    cwd = guvenli_yol(m["cwd"]) if m.get("cwd") else None
+    if op == "mcp_liste":
+        return {"sunucular": claude_mcp_listesi(cwd) if ajan == "claude" else await codex_mcp_listesi()}
+    ad = (m.get("ad") or "").strip()
+    if not MCP_AD.match(ad):
+        raise ValueError("ad yalnız harf, rakam, - _ . içerebilir")
+    if op == "mcp_sil":
+        args = [ajan, "mcp", "remove", ad]
+        if ajan == "claude" and m.get("kapsam"):
+            args += ["--scope", m["kapsam"]]
+        return _sonuc(*await calistir(args, cwd, 60), "silindi")
+    if op != "mcp_ekle":
+        raise ValueError(f"bilinmeyen işlem: {op}")
+    url = (m.get("url") or "").strip()
+    komut = [str(a) for a in m.get("komut") or [] if str(a).strip()]
+    ortam = [f"{k}={v}" for k, v in (m.get("ortam") or {}).items() if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", k)]
+    if bool(url) == bool(komut):
+        raise ValueError("ya adres (http) ya da komut ver")
+    if ajan == "claude":
+        # -e ve --header çok değer alır: adı yutmasınlar diye addan sonra gelirler.
+        args = ["claude", "mcp", "add", "--scope", m.get("kapsam") or "user"]
+        if url:
+            args += ["--transport", "http", ad, url]
+            for k, v in (m.get("basliklar") or {}).items():
+                args += ["--header", f"{k}: {v}"]
+        else:
+            args += [ad]
+            for e in ortam:
+                args += ["-e", e]
+            args += ["--", *komut]
+    else:
+        args = ["codex", "mcp", "add", ad]
+        if url:
+            args += ["--url", url]
+        else:
+            for e in ortam:
+                args += ["--env", e]
+            args += ["--", *komut]
+    return _sonuc(*await calistir(args, cwd, 60), "eklendi")
 
 
 # ---------------------------------------------------------------- terminal
@@ -1999,6 +2098,8 @@ class Kopru:
         if op == "belge":
             return belge_oku(guvenli_yol(m["yol"]))
 
+        if op.startswith("mcp_"):
+            return await mcp_islem(op, m)
         if op.startswith("terminal_"):
             return await self.terminal_islem(op, m)
 

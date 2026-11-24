@@ -7,6 +7,7 @@ import '../model/sesli_konusma.dart';
 import '../servis/termux.dart';
 import 'giris_penceresi.dart';
 import 'kurulum_paneli.dart';
+import 'mcp_ekrani.dart';
 
 /// Ayarlar: GitHub hesabı, SSH anahtarı, uzak sunucular, görünüm ve bağlantı.
 /// Giriş işlemleri her aracın kendi akışıyla Termux'ta yapılır.
@@ -429,6 +430,20 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                     ),
                   ],
                 ],
+              ),
+            ),
+          if (c.yetenek('mcp'))
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => McpEkrani(calisma: c)),
+                  ),
+                  icon: const Icon(Icons.extension_outlined, size: 18),
+                  label: const Text('MCP sunucuları'),
+                ),
               ),
             ),
         ],

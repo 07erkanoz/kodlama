@@ -121,6 +121,9 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
 - **Terminal:** oturum menüsündeki "Terminal" proje klasöründe gerçek bir kabuk açar (köprüde PTY,
   arayüzde xterm). Sayfadan çıkınca kabuk yaşamaya devam eder; Esc, Tab, Ctrl+C, oklar gibi
   tuşlar alttaki çubuktadır.
+- **MCP yöneticisi:** Ayarlar › Ajanlar › MCP sunucuları; Claude Code ve Codex için sunucuları
+  listeler, ekler (komut ya da HTTP adresi, ortam değişkenleri, Claude'da başlıklar) ve siler.
+  İşi CLI'ların kendi `mcp add/remove` komutları yapar; gizli değerler köprüden geri dönmez.
 - **Tablet düzeni:** oturum listesi ve dosya paneli üst çubuktaki düğmelerle açılıp kapanır.
 
 ## Ekran düzenleri
