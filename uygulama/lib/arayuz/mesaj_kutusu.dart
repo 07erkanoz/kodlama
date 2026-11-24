@@ -95,7 +95,10 @@ class _MesajKutusuState extends State<MesajKutusu> {
     final r = t.colorScheme;
     final dolu =
         widget.denetleyici.text.trim().isNotEmpty || widget.ekler.isNotEmpty;
-    return AnimatedContainer(
+    // Kutunun tamamı tek bir dokunma bölgesi: içindeki düğmeler (gönder,
+    // model…) klavyeyi kapatmaz; dışına dokunmak kapatır.
+    return TextFieldTapRegion(
+      child: AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       decoration: BoxDecoration(
         color: r.surfaceContainerLow,
@@ -149,6 +152,7 @@ class _MesajKutusuState extends State<MesajKutusu> {
             minLines: widget.enAzSatir,
             maxLines: 12,
             textInputAction: TextInputAction.newline,
+            onTapOutside: (_) => _odak.unfocus(),
             style: t.textTheme.bodyLarge?.copyWith(fontSize: 16, height: 1.45),
             decoration: InputDecoration(
               hintText: widget.ipucu,
@@ -208,6 +212,7 @@ class _MesajKutusuState extends State<MesajKutusu> {
           ),
         ],
       ),
+    ),
     );
   }
 }

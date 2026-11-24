@@ -85,6 +85,11 @@ class _KurulumEkraniState extends State<KurulumEkrani>
       return;
     }
     if (_adim == 2) c.istemci.baglan();
+    // Girişten dönünce ajanların giriş durumunu tazele
+    if (_adim == 4) {
+      await c.yenile();
+      if (mounted) setState(() {});
+    }
   }
 
   /// Resmi Termux APK'sını indirir, doğrular ve Android'in yükleme ekranını açar.
@@ -447,6 +452,28 @@ class _KurulumEkraniState extends State<KurulumEkrani>
     );
   }
 
+  Future<void> _girisAc(String ad) async {
+    final komut = Termux.girisKomutu(ad);
+    bool acildi;
+    try {
+      acildi = await Termux.girisAc(ad);
+    } catch (e) {
+      acildi = false;
+      await Clipboard.setData(ClipboardData(text: komut));
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 6),
+        content: Text(
+          acildi
+              ? 'Termux\'ta giriş açılıyor. Açılmadıysa komut panoda: uzun bas → Paste → Enter.'
+              : '"$komut" komutu kopyalandı. Termux\'ta ekrana uzun bas → Paste → Enter.',
+        ),
+      ),
+    );
+  }
+
   Widget _giris(ThemeData t) {
     final ajanlar = {for (final a in c.ajanlar) a['ad']: a};
     return Column(
@@ -456,42 +483,34 @@ class _KurulumEkraniState extends State<KurulumEkrani>
         const SizedBox(height: 8),
         const Text(
           'Her ajan kendi giriş ekranını Termux\'ta açar. Tarayıcıda hesabına '
-          'gir; Claude için giriş bitince /exit yaz. Sonra buraya dön.',
+          'gir; Claude için giriş bitince /exit yaz. Sonra buraya dön. '
+          'Daha önce giriş yaptıysan bu adımı atlayabilirsin: giriş bilgileri '
+          'Termux\'ta saklanır, uygulama yeniden kurulsa da kaybolmaz.',
         ),
         const SizedBox(height: 12),
         for (final ad in _secili)
           Card(
             child: ListTile(
+              leading: ajanlar[ad]?['giris'] == true
+                  ? Icon(Icons.check_circle, color: t.colorScheme.tertiary)
+                  : null,
               title: Text(ad == 'claude' ? 'Claude Code' : 'Codex'),
               subtitle: Text(
-                ajanlar[ad]?['kurulu'] == true
-                    ? (ajanlar[ad]?['surum'] as String? ?? 'kurulu')
-                    : 'kurulu görünmüyor — Termux\'taki çıktıya bak',
+                ajanlar[ad]?['kurulu'] != true
+                    ? 'kurulu görünmüyor — Termux\'taki çıktıya bak'
+                    : ajanlar[ad]?['giris'] == true
+                    ? 'Giriş yapılmış · ${ajanlar[ad]?['surum'] ?? ''}'
+                    : (ajanlar[ad]?['surum'] as String? ?? 'kurulu'),
               ),
-              trailing: FilledButton.tonal(
-                onPressed: () async {
-                  final komut = Termux.girisKomutu(ad);
-                  bool acildi;
-                  try {
-                    acildi = await Termux.girisAc(ad);
-                  } catch (e) {
-                    acildi = false;
-                    await Clipboard.setData(ClipboardData(text: komut));
-                  }
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      duration: const Duration(seconds: 6),
-                      content: Text(
-                        acildi
-                            ? 'Termux\'ta giriş açılıyor. Açılmadıysa komut panoda: uzun bas → Paste → Enter.'
-                            : '"$komut" komutu kopyalandı. Termux\'ta ekrana uzun bas → Paste → Enter.',
-                      ),
+              trailing: ajanlar[ad]?['giris'] == true
+                  ? TextButton(
+                      onPressed: () => _girisAc(ad),
+                      child: const Text('Yeniden'),
+                    )
+                  : FilledButton.tonal(
+                      onPressed: () => _girisAc(ad),
+                      child: const Text('Giriş yap'),
                     ),
-                  );
-                },
-                child: const Text('Giriş yap'),
-              ),
             ),
           ),
         const SizedBox(height: 16),

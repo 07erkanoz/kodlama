@@ -44,7 +44,7 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.7.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.7.1"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -80,6 +80,17 @@ CODEX_MOD = {
     "serbest": ("never", "danger-full-access"),
     "plan": ("untrusted", "read-only"),
 }
+
+
+def giris_var(ajan: str) -> bool:
+    """Ajanın hesabına giriş yapılmış mı (kimlik dosyası ya da anahtar var mı).
+    Uygulama yeniden kurulsa da bu bilgiler Termux'ta kalır."""
+    if ajan == "codex":
+        ev = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+        return (ev / "auth.json").is_file() or bool(os.environ.get("OPENAI_API_KEY"))
+    ev = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    return ((ev / ".credentials.json").is_file() or bool(os.environ.get("ANTHROPIC_API_KEY"))
+            or bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")))
 
 
 def kisa(s, n=CIKTI_SINIRI):
@@ -1148,7 +1159,7 @@ class Kopru:
                     surum = o.decode().strip().splitlines()[0] if o else None
                 except (OSError, asyncio.TimeoutError, IndexError):
                     pass
-            out.append({"ad": ad, "kurulu": bool(yol), "surum": surum})
+            out.append({"ad": ad, "kurulu": bool(yol), "surum": surum, "giris": giris_var(ad)})
         return out
 
     def sunucular(self) -> dict[str, dict]:

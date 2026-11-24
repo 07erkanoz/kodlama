@@ -245,6 +245,8 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                   ? _Bos(sohbet: s)
                   : ListView.builder(
                       reverse: true,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                       itemCount: say,
                       itemBuilder: (context, i) {

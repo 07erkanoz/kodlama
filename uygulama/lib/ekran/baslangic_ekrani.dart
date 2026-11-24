@@ -219,6 +219,8 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
           builder: (context, kisit) {
             final dar = kisit.maxWidth < 600;
             return SingleChildScrollView(
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.onDrag,
               padding: EdgeInsets.fromLTRB(
                 16,
                 dar ? 24 : kisit.maxHeight * .12,
