@@ -245,6 +245,9 @@ class SesliKonusma extends ChangeNotifier {
         } else {
           notifyListeners();
         }
+      case 'bilgi':
+        satirlar.add(SesSatiri(false, '(${e['metin'] ?? ''})'));
+        notifyListeners();
       case 'kapandi':
         if (_pc != null && _yanit?.isCompleted != false) unawaited(bitir());
       case 'parca':
@@ -323,20 +326,12 @@ bool durdurmaSozu(String soz) {
   );
 }
 
-/// Codex'in realtime sesleri (app-server şeması, RealtimeVoice). Cinsiyet
-/// yalnızca OpenAI'nin tanıttığı seslerde verilir; diğerleri yeni çok dilli
-/// sesler, tınısı denenerek seçilmeli.
+/// Codex'in realtime v3 sesleri (Codex'in hata iletisinden; v3 dışındaki eski
+/// sesler — coral, cedar, ash… — bu protokolde reddedilir). OpenAI bu yeni
+/// seslerin cinsiyetini yayımlamadı; yalnız bilineni yazılı, gerisi denenerek
+/// seçilmeli.
 const codexSesleri = <(String, String)>[
   ('marin', 'kadın'),
-  ('coral', 'kadın'),
-  ('shimmer', 'kadın'),
-  ('sage', 'kadın'),
-  ('cedar', 'erkek'),
-  ('ash', 'erkek'),
-  ('echo', 'erkek'),
-  ('verse', 'erkek'),
-  ('ballad', 'erkek'),
-  ('alloy', 'nötr'),
   ('arbor', ''), ('aube', ''), ('breeze', ''), ('bubbie', ''), ('cove', ''),
   ('ember', ''), ('haetsal', ''), ('hanul', ''), ('himari', ''),
   ('juniper', ''), ('leher', ''), ('maple', ''), ('miko', ''), ('neer', ''),
@@ -344,3 +339,7 @@ const codexSesleri = <(String, String)>[
   ('sol', ''), ('sonna', ''), ('spruce', ''), ('tinta', ''), ('vale', ''),
   ('viola', ''),
 ];
+
+/// Kayıtlı ses bu listede yoksa (eski sürümden kalma) Codex'in varsayılanı.
+String? gecerliSes(String ses) =>
+    codexSesleri.any((v) => v.$1 == ses) ? ses : null;

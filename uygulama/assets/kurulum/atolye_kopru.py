@@ -1324,12 +1324,20 @@ class CodexOturum(Oturum):
         if model:
             prm["model"] = model  # yalnız bu konuşma için realtime modeli
         self.ses = True
+        self._ses_prm = prm
         try:
             await self._rpc("thread/realtime/start", prm)
         except RuntimeError:
             self.ses = False
             raise
         # Yanıt SDP'si "thread/realtime/sdp" bildirimiyle gelir (bazen saniyeler sonra).
+
+    async def _ses_yeniden(self, prm: dict):
+        try:
+            await self._rpc("thread/realtime/start", prm)
+        except RuntimeError as e:
+            self.ses = False
+            self.yay({"ev": "ses", "tur": "hata", "metin": kisa(str(e), 1000)}, kaydet=False)
 
     async def ses_metin(self, metin: str):
         if self.ses and metin:
@@ -1472,7 +1480,18 @@ class CodexOturum(Oturum):
                     self.yay({"ev": "kullanici", "metin": metin, "ekler": [], "sesli": True} if rol == "user"
                              else {"ev": "metin", "anahtar": f"ses{simdi()}", "metin": metin, "sesli": True})
             elif alt == "error":
-                self.yay({"ev": "ses", "tur": "hata", "metin": kisa(prm.get("message") or "", 1000)}, kaydet=False)
+                ileti = prm.get("message") or ""
+                eski = getattr(self, "_ses_prm", None)
+                if eski and eski.get("voice") and "voice" in ileti and "not supported" in ileti:
+                    # Seçilen ses bu protokolde yok: aynı teklifle varsayılan sesle yeniden başlat.
+                    yeni = {k: v for k, v in eski.items() if k != "voice"}
+                    self._ses_prm = yeni
+                    self.yay({"ev": "ses", "tur": "bilgi",
+                              "metin": f"{eski['voice']} sesi desteklenmiyor; varsayılan ses kullanılıyor."},
+                             kaydet=False)
+                    asyncio.create_task(self._ses_yeniden(yeni))
+                    return
+                self.yay({"ev": "ses", "tur": "hata", "metin": kisa(ileti, 1000)}, kaydet=False)
             elif alt == "closed":
                 self.ses = False
                 self.yay({"ev": "ses", "tur": "kapandi", "neden": prm.get("reason")}, kaydet=False)

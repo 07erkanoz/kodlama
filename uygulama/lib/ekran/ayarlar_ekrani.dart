@@ -468,7 +468,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           DropdownButtonFormField<String>(
-            initialValue: a.sesSesi,
+            initialValue: gecerliSes(a.sesSesi) ?? '',
             isExpanded: true,
             decoration: const InputDecoration(labelText: 'Ses'),
             items: [
@@ -483,8 +483,8 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Cinsiyet yalnızca OpenAI\'nin tanıttığı seslerde yazılı; diğerleri '
-            'yeni çok dilli sesler, deneyerek seç.',
+            'Codex\'in yeni (v3) sesleri. OpenAI bunların cinsiyetini '
+            'yayımlamadı; marin dışındakileri deneyerek seç.',
             style: t.textTheme.bodySmall?.copyWith(color: r.onSurfaceVariant),
           ),
           const SizedBox(height: 14),

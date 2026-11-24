@@ -223,7 +223,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     } else {
       final a = widget.calisma.ayarlar;
       ses.baslat(
-        ses: a.sesSesi.isEmpty ? null : a.sesSesi,
+        ses: gecerliSes(a.sesSesi),
         dil: a.sesDili,
         model: a.sesModeli.isEmpty ? null : a.sesModeli,
       );
