@@ -81,7 +81,7 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
 - **Sohbet:** Markdown yanıtlar, araç adımları tek "etkinlik" satırında, düzenlemeler ve onaylar
   kırmızı/yeşil diff olarak, çalışırken araya mesaj yazma, durdurma, dosya ekleme.
 - **Başlangıç ekranı:** proje, ajan, çalışma biçimi ve konum (bu cihaz ya da SSH sunucusu) seçip
-  tek adımda başlatma; hazır görevler; proje kartları; GitHub'dan klonlama.
+  tek adımda başlatma; proje kartları; GitHub'dan klonlama.
 - **Dosyalar:** bu oturumda değişenler, klasör gezgini; önizleme: resim, SVG, PDF, ses, video,
   Word/PowerPoint (Markdown'a çevrilerek), Excel/CSV (tablo), HTML, Markdown, kod. Her dosya
   başka bir uygulamada açılabilir ya da paylaşılabilir.
@@ -103,6 +103,10 @@ bilerek koyduğu bir güvenlik kapısıdır; aşılmaz.
   ile depoya koyar, iş akışı APK'yı `apksigner` ile imzalar; böylece yeni sürüm eskisinin
   üstüne kurulur. "Derle" `gh workflow run` ile başlatır (ajan da başlatabilir); bitenler
   listede "Kur" ile indirilir (`gh run download`) ve Android'in yükleme ekranı açılır.
+- **Uygulama içi önizleme:** ajanın başlattığı geliştirme sunucusu (Vite, Flask, http.server…)
+  Atölye'nin içinde WebView'da açılır: sohbetteki `localhost`/`127.0.0.1` bağlantıları, HTML
+  dosyaları ve oturum menüsündeki "Yerel sunucuyu önizle" (yaygın portları tarar, port elle de
+  yazılır). WebView olmayan platformlarda tarayıcıda açılır.
 
 ## Ekran düzenleri
 

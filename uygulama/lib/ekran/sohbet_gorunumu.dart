@@ -13,6 +13,7 @@ import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../model/sesli_konusma.dart';
 import '../model/sohbet.dart';
+import 'canli_onizleme.dart';
 import 'onizleme.dart';
 
 /// Sohbetin ekrandaki birimi: tek tek öğeler değil, okunur gruplar.
@@ -132,6 +133,11 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
   void _dosyaAc(String hedef) {
     var yol = hedef.trim();
     final adres = Uri.tryParse(yol);
+    if (adres != null && yerelAdres(adres)) {
+      // ajanın başlattığı geliştirme sunucusu: uygulamanın içinde aç
+      onizlemeAc(context, widget.calisma, adres);
+      return;
+    }
     if (adres != null && (adres.scheme == 'http' || adres.scheme == 'https')) {
       launchUrl(adres, mode: LaunchMode.externalApplication);
       return;
@@ -156,10 +162,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         : '${s.cwd}/${yol.replaceFirst(RegExp(r'^\./'), '')}';
     final u = tam.split('.').last.toLowerCase();
     if ((u == 'html' || u == 'htm') && !widget.calisma.kopruEski) {
-      launchUrl(
-        widget.calisma.istemci.sayfaAdresi(tam),
-        mode: LaunchMode.externalApplication,
-      );
+      onizlemeAc(context, widget.calisma, widget.calisma.istemci.sayfaAdresi(tam));
       return;
     }
     if (widget.dosyaAc != null) {

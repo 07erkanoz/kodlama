@@ -31,7 +31,8 @@ class DerlemeBolumu extends StatefulWidget {
 
 class _DerlemeBolumuState extends State<DerlemeBolumu> {
   Map<String, dynamic>? _d;
-  String? _calisan; // 'sablon', 'imza', 'baslat', ya da indirilen çalışmanın kimliği
+  String?
+  _calisan; // 'sablon', 'imza', 'baslat', ya da indirilen çalışmanın kimliği
   double? _ilerleme;
   Timer? _izle;
 

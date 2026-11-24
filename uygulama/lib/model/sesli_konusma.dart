@@ -97,8 +97,7 @@ class SesliKonusma extends ChangeNotifier {
           if (c == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
             _sonEtkinlik = DateTime.now();
             if (durum == SesDurumu.baglaniyor) _ver(SesDurumu.dinliyor);
-          } else if (c ==
-                  RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+          } else if (c == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
               c == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
             hata ??= 'Ses bağlantısı koptu.';
             unawaited(bitir());

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../arayuz/ortak.dart';
 import '../arayuz/yerlesim.dart';
 import '../model/calisma.dart';
+import 'canli_onizleme.dart';
 import 'baslangic_ekrani.dart';
 import 'dosya_paneli.dart';
 import 'onizleme.dart';
@@ -127,6 +128,11 @@ PreferredSizeWidget _ustCubuk(
           icon: const Icon(Icons.more_horiz),
           onSelected: (v) async {
             if (v == 'yeni') c.baslangica();
+            if (v == 'onizle') {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => CanliOnizleme(calisma: c)),
+              );
+            }
             if (v == 'sil') {
               final evet = await showDialog<bool>(
                 context: context,
@@ -152,6 +158,10 @@ PreferredSizeWidget _ustCubuk(
           },
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'yeni', child: Text('Yeni oturum')),
+            PopupMenuItem(
+              value: 'onizle',
+              child: Text('Yerel sunucuyu önizle'),
+            ),
             PopupMenuItem(value: 'sil', child: Text('Oturumu sil')),
           ],
         ),

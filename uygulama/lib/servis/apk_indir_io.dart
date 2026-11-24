@@ -13,7 +13,9 @@ Future<String> apkIndir(
   final klasor = Directory('${(await getTemporaryDirectory()).path}/derleme');
   if (await klasor.exists()) await klasor.delete(recursive: true);
   await klasor.create(recursive: true);
-  final hedef = File('${klasor.path}/${ad.replaceAll(RegExp(r'[^\w.\-]'), '_')}');
+  final hedef = File(
+    '${klasor.path}/${ad.replaceAll(RegExp(r'[^\w.\-]'), '_')}',
+  );
   final h = HttpClient();
   try {
     final yanit = await (await h.getUrl(adres)).close();
