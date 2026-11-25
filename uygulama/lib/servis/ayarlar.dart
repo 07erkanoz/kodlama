@@ -88,6 +88,12 @@ class Ayarlar {
   String? get yankiCihaz => _bos(_p.getString('yankiCihaz'));
   set yankiCihaz(String? v) => _p.setString('yankiCihaz', v ?? '');
 
+  /// Her sunucuda en son seçilen klasör (yeni oturumların varsayılanı).
+  String? sonUzakKlasor(String sunucu) =>
+      _bos(_p.getString('uzakKlasor:$sunucu'));
+  void sonUzakKlasorYaz(String sunucu, String yol) =>
+      _p.setString('uzakKlasor:$sunucu', yol);
+
   static String? _bos(String? v) => v == null || v.isEmpty ? null : v;
 
   /// Sesli konuşma (Yankı görünümünde) doğrudan tam ekran açılsın mı.

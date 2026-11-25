@@ -33,10 +33,14 @@ class _KlonlaState extends State<_Klonla> {
     _ara.addListener(() => setState(() {}));
     widget.calisma.istemci
         .iste('gh_repolar')
-        .then(
-          (r) => setState(() => _repolar = (r['repolar'] as List).cast<Map>()),
-        )
-        .catchError((Object e) => setState(() => _repoHata = '$e'));
+        .then((r) {
+          if (mounted) {
+            setState(() => _repolar = (r['repolar'] as List).cast<Map>());
+          }
+        })
+        .catchError((Object e) {
+          if (mounted) setState(() => _repoHata = '$e');
+        });
   }
 
   Future<void> _klonla(String url) async {
@@ -76,7 +80,12 @@ class _KlonlaState extends State<_Klonla> {
       title: const Text('Depo klonla'),
       content: SizedBox(
         width: 520,
-        height: 480,
+        // Klavye açılınca taşmasın: yükseklik ekrana göre kısalır.
+        height:
+            (MediaQuery.sizeOf(context).height -
+                    MediaQuery.viewInsetsOf(context).bottom -
+                    220)
+                .clamp(200.0, 480.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

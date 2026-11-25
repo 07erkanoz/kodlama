@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../arayuz/ortak.dart';
 import '../arayuz/yerlesim.dart';
@@ -21,24 +22,76 @@ import 'terminal_sayfasi.dart';
 ///         küçük tablet) : kenar çubuğu | sohbet; dosyalar sağ çekmecede
 ///   menteşeli katlanır  : sohbet | dosyalar ya da önizleme (menteşeye göre)
 ///   geniş (tablet)      : kenar çubuğu | sohbet | dosyalar ya da önizleme
-class AnaEkran extends StatelessWidget {
+class AnaEkran extends StatefulWidget {
   const AnaEkran({super.key, required this.calisma});
 
   final Calisma calisma;
 
   @override
+  State<AnaEkran> createState() => _AnaEkranState();
+}
+
+class _AnaEkranState extends State<AnaEkran> {
+  Calisma get calisma => widget.calisma;
+  DateTime? _sonGeri;
+
+  /// Android geri tuşu uygulamayı hemen kapatmasın: önce açık çekmece,
+  /// sonra önizleme, sonra oturumdan başlangıca döner; başlangıçta iki kez
+  /// basınca çıkar.
+  void _geri(BuildContext context) {
+    final rota = ModalRoute.of(context);
+    if (rota != null && rota.willHandlePopInternally) {
+      // Açık çekmece (oturumlar ya da dosyalar): onu kapat.
+      Navigator.of(context).pop();
+      return;
+    }
+    final c = calisma;
+    if (c.onizlenen != null) {
+      c.onizle(null);
+      return;
+    }
+    if (c.secili != null) {
+      c.baslangica();
+      return;
+    }
+    final simdi = DateTime.now();
+    if (_sonGeri != null &&
+        simdi.difference(_sonGeri!) < const Duration(seconds: 2)) {
+      SystemNavigator.pop();
+      return;
+    }
+    _sonGeri = simdi;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Çıkmak için bir kez daha geri bas'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: calisma,
-      builder: (context, _) => LayoutBuilder(
-        builder: (context, kisit) {
-          if (dikeyMentese(context) != null) return _Katlanir(calisma: calisma);
-          return switch (ekranSinifi(kisit.maxWidth)) {
-            EkranSinifi.dar => _Dar(calisma: calisma),
-            EkranSinifi.orta => _Orta(calisma: calisma),
-            EkranSinifi.genis => _Genis(calisma: calisma),
-          };
-        },
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bitti, _) {
+        if (!bitti) _geri(context);
+      },
+      child: ListenableBuilder(
+        listenable: calisma,
+        builder: (context, _) => LayoutBuilder(
+          builder: (context, kisit) {
+            if (dikeyMentese(context) != null) {
+              return _Katlanir(calisma: calisma);
+            }
+            return switch (ekranSinifi(kisit.maxWidth)) {
+              EkranSinifi.dar => _Dar(calisma: calisma),
+              EkranSinifi.orta => _Orta(calisma: calisma),
+              EkranSinifi.genis => _Genis(calisma: calisma),
+            };
+          },
+        ),
       ),
     );
   }

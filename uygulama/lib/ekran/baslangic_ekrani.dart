@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../arayuz/uzak_klasor_secici.dart';
 import '../arayuz/ajan_ayarlari.dart';
 import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
@@ -105,9 +106,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
         effort: yanki ? YankiSecimi.varsayilan(a).ajanEffort : _effort,
         yanki: yanki,
         sunucu: sunucu?['ad'] as String?,
-        uzakKlasor: sunucu == null
-            ? null
-            : (_uzakKlasor ?? sunucu['klasor'] as String? ?? '~'),
+        uzakKlasor: sunucu == null ? null : _uzakKlasorFor(sunucu),
         yerelEkler: List.of(_paylasilan),
       );
       _paylasilan.clear();
@@ -152,36 +151,43 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
     if (yol != null && mounted) setState(() => _proje = yol);
   }
 
+  /// Seçili sunucuda çalışılacak klasör: bu ekranda seçilen, yoksa o
+  /// sunucuda en son seçilen, yoksa sunucunun varsayılanı.
+  String _uzakKlasorFor(Map<String, dynamic> s) =>
+      _uzakKlasor ??
+      c.ayarlar.sonUzakKlasor(s['ad'] as String) ??
+      s['klasor'] as String? ??
+      '~';
+
+  static String _klasorAdi(String yol) {
+    final parca = yol.split('/').where((p) => p.isNotEmpty).toList();
+    return parca.isEmpty ? '/' : parca.last;
+  }
+
+  /// Telefonda yer (cihaz + klasör) bir satırda, ajan seçici altında;
+  /// geniş ekranda hepsi tek satır.
+  Widget _yerVeAjan({
+    required bool dar,
+    required List<Widget> yer,
+    required Widget ajan,
+  }) => dar
+      ? Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: yer),
+            const SizedBox(height: 8),
+            Align(alignment: Alignment.centerLeft, child: ajan),
+          ],
+        )
+      : Row(children: [...yer, const SizedBox(width: 10), ajan]);
+
   Future<void> _uzakKlasorSec() async {
     final s = _seciliSunucu;
     if (s == null) return;
-    final d = TextEditingController(
-      text: _uzakKlasor ?? s['klasor'] as String? ?? '~',
-    );
-    final v = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${s['ad']} üzerinde klasör'),
-        content: TextField(
-          controller: d,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '/home/kullanici/proje'),
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Vazgeç'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, d.text),
-            child: const Text('Tamam'),
-          ),
-        ],
-      ),
-    );
-    if (v != null && v.trim().isNotEmpty) {
-      setState(() => _uzakKlasor = v.trim());
+    final v = await uzakKlasorSec(context, c, s, _uzakKlasorFor(s));
+    if (v != null && mounted) {
+      c.ayarlar.sonUzakKlasorYaz(s['ad'] as String, v);
+      setState(() => _uzakKlasor = v);
     }
   }
 
@@ -214,7 +220,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
     if (sonuc == null || sonuc.trim().isEmpty) return;
     try {
       final yol = await c.projeOlustur(sonuc.trim());
-      setState(() => _proje = yol);
+      if (mounted) setState(() => _proje = yol);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -283,8 +289,9 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                         _AsistanKarti(calisma: c),
                         const SizedBox(height: 16),
                       ],
-                      Row(
-                        children: [
+                      _yerVeAjan(
+                        dar: dar,
+                        yer: [
                           if (c.sunucular.isNotEmpty) ...[
                             Flexible(
                               child: SecimCipi<String>(
@@ -325,10 +332,9 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                                         Icons.folder_outlined,
                                         size: 15,
                                       ),
+                                      tooltip: _uzakKlasorFor(sunucu),
                                       label: Text(
-                                        _uzakKlasor ??
-                                            sunucu['klasor'] as String? ??
-                                            '~',
+                                        _klasorAdi(_uzakKlasorFor(sunucu)),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       onPressed: _uzakKlasorSec,
@@ -362,20 +368,19 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                                     ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          _AjanSecici(
-                            ajanlar: c.ajanlar,
-                            secili: ajan,
-                            sec: (v) => setState(() {
-                              if (v != _ajan) {
-                                _model = null;
-                                _effort = null;
-                              }
-                              _ajan = v;
-                            }),
-                            kur: Termux.destekleniyor ? _ajanKur : null,
-                          ),
                         ],
+                        ajan: _AjanSecici(
+                          ajanlar: c.ajanlar,
+                          secili: ajan,
+                          sec: (v) => setState(() {
+                            if (v != _ajan) {
+                              _model = null;
+                              _effort = null;
+                            }
+                            _ajan = v;
+                          }),
+                          kur: Termux.destekleniyor ? _ajanKur : null,
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Builder(

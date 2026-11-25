@@ -126,6 +126,24 @@ class KopruIstemci {
     _tekrar = Timer(bekle, baglan);
   }
 
+  /// Uzun sürebilen işler: yanıtı 60 sn yerine 10 dakika beklenir (yoksa
+  /// iş köprüde sürerken uygulama "yanıt vermedi" derdi).
+  static const _uzunIsler = {
+    'git_klonla',
+    'git_push',
+    'git_pull',
+    'git_commit',
+    'gh_pr',
+    'gh_anahtar_ekle',
+    'sunucu_anahtar_gonder',
+    'sunucu_dene',
+    'yukle',
+    'derleme_baslat',
+    'derleme_indir',
+    'kopru_guncelle',
+    'mcp_ekle',
+  };
+
   Future<Map<String, dynamic>> _istek(Map<String, dynamic> m) {
     final kanal = _kanal;
     if (kanal == null) return Future.error(KopruHatasi('bağlı değil'));
@@ -134,7 +152,9 @@ class KopruIstemci {
     _bekleyen[no] = c;
     kanal.sink.add(jsonEncode({...m, 'no': no}));
     return c.future.timeout(
-      const Duration(seconds: 60),
+      _uzunIsler.contains(m['op'])
+          ? const Duration(minutes: 10)
+          : const Duration(seconds: 60),
       onTimeout: () {
         _bekleyen.remove(no);
         throw KopruHatasi('köprü yanıt vermedi');

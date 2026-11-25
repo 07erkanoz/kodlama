@@ -101,6 +101,13 @@ class Sohbet extends ChangeNotifier {
   final _onaylar = <String, OnayOge>{};
   bool yukleniyor = false;
 
+  /// Geçmiş yüklenemediyse nedeni (sohbet ekranı "Yeniden dene" gösterir).
+  String? yuklemeHatasi;
+
+  /// Başlangıç ekranından gönderilip ulaşmayan ilk mesaj: yazma kutusuna
+  /// geri konur ki kaybolmasın.
+  ({String metin, String hata})? gonderilemedi;
+
   String get id => _ozet['id'] as String;
   String get ajan => _ozet['ajan'] as String;
   String get cwd => _ozet['cwd'] as String;
@@ -201,7 +208,10 @@ class Sohbet extends ChangeNotifier {
   }
 
   Future<void> gecmisiYukle() async {
-    yukleniyor = true;
+    // Yeniden bağlanınca sessizce yenilenir; yükleme göstergesi yalnız
+    // sohbet boşken (ilk açılış) çıkar, kaydırma yeri korunur.
+    yukleniyor = ogeler.isEmpty;
+    yuklemeHatasi = null;
     notifyListeners();
     try {
       final r = await istemci.iste('gecmis', {'oturum': id});
@@ -219,6 +229,8 @@ class Sohbet extends ChangeNotifier {
       for (final o in _onaylar.values) {
         if (!bekleyen.contains(o.rid)) o.kapandi = true;
       }
+    } catch (e) {
+      yuklemeHatasi = '$e';
     } finally {
       yukleniyor = false;
       notifyListeners();
@@ -410,14 +422,22 @@ class Sohbet extends ChangeNotifier {
   }
 
   Future<void> gonder(String metin, {List<String> ekler = const []}) async {
+    final onceki = _ozet['durum'];
     turBasi = DateTime.now();
     _ozet = {..._ozet, 'durum': 'calisiyor'};
     notifyListeners();
-    await istemci.iste('gonder', {
-      'oturum': id,
-      'metin': metin,
-      'ekler': ekler,
-    });
+    try {
+      await istemci.iste('gonder', {
+        'oturum': id,
+        'metin': metin,
+        'ekler': ekler,
+      });
+    } catch (_) {
+      // Ulaşmadı: "çalışıyor" göstergesi takılı kalmasın.
+      _ozet = {..._ozet, 'durum': onceki};
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> durdur() => istemci.iste('durdur', {'oturum': id});
@@ -427,7 +447,16 @@ class Sohbet extends ChangeNotifier {
       ..karar = karar
       ..kapandi = true;
     notifyListeners();
-    await istemci.iste('onay', {'oturum': id, 'rid': o.rid, 'karar': karar});
+    try {
+      await istemci.iste('onay', {'oturum': id, 'rid': o.rid, 'karar': karar});
+    } catch (_) {
+      // Ulaşmadı: kart yeniden açılsın, ajan sonsuza dek beklemesin.
+      o
+        ..karar = null
+        ..kapandi = false;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> modDegistir(String yeni) => ayarla({'mod': yeni});

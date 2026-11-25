@@ -51,10 +51,10 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.10.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.11.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan", "uzak_klasor", "kota_oku"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -855,6 +855,17 @@ async def derleme_indir(cwd: Path, calisma: int) -> dict:
 SSH_ANAHTAR = Path.home() / ".ssh" / "id_ed25519"
 
 
+def codex_kota_pencereleri(lim: dict) -> list[dict]:
+    pencereler = []
+    for k in ("primary", "secondary"):
+        w = lim.get(k)
+        if w and w.get("usedPercent") is not None:
+            dk = w.get("windowDurationMins") or 0
+            pencereler.append({"ad": {300: "5 saat", 10080: "hafta"}.get(dk, f"{dk // 60} saat"),
+                               "kullanim": round(w["usedPercent"]), "sifirlanma": w.get("resetsAt")})
+    return pencereler
+
+
 def ssh_hedef(s: dict) -> list[str]:
     return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30",
@@ -863,12 +874,45 @@ def ssh_hedef(s: dict) -> list[str]:
 
 def uzak_komut(s: dict, klasor: str, args: list[str]) -> list[str]:
     """Uzak makinede giriş kabuğuyla (PATH yüklensin) klasöre geçip komutu çalıştır."""
-    if klasor == "~" or klasor.startswith("~/"):  # tırnak içinde ~ açılmaz
-        hedef = '"$HOME"' + (shlex.quote(klasor[1:]) if len(klasor) > 1 else "")
-    else:
-        hedef = shlex.quote(klasor)
-    ic = f"cd {hedef} && exec {shlex.join(args)}"
+    ic = f"cd {_uzak_hedef(klasor)} && exec {shlex.join(args)}"
     return ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", ic])]
+
+
+def _uzak_hedef(klasor: str) -> str:
+    if klasor == "~" or klasor.startswith("~/"):  # tırnak içinde ~ açılmaz
+        return '"$HOME"' + (shlex.quote(klasor[1:]) if len(klasor) > 1 else "")
+    return shlex.quote(klasor)
+
+
+async def uzak_listele(s: dict, klasor: str, yeni: str | None = None) -> dict:
+    """Uzak makinede bir klasörün alt klasörleri (seçici için). [yeni] verilirse
+    önce o adla bir alt klasör oluşturulur."""
+    klasor = (klasor or "~").strip() or "~"
+    ic = f"cd {_uzak_hedef(klasor)} || exit 3; "
+    if yeni:
+        ad = yeni.strip()
+        if not ad or "/" in ad or ad in (".", ".."):
+            raise ValueError("geçersiz klasör adı")
+        ic += f"mkdir -p -- {shlex.quote(ad)} && cd -- {shlex.quote(ad)} || exit 4; "
+    ic += ('echo "ATOLYE_YOL=$PWD"; [ -d .git ] && echo ATOLYE_GIT; '
+           'for d in .[!.]* *; do [ -d "$d" ] && printf "%s\\n" "$d"; done 2>/dev/null')
+    kod, out, err = await calistir(ssh_hedef(s) + ["--", shlex.join(["sh", "-c", ic])], sure=25)
+    if kod == 3:
+        raise RuntimeError(f"{klasor}: klasör yok ya da açılamıyor")
+    if kod == 4:
+        raise RuntimeError("klasör oluşturulamadı")
+    if "ATOLYE_YOL=" not in out:
+        raise RuntimeError(err.strip() or "bağlanılamadı")
+    yol, git, klasorler = "", False, []
+    for satir in out.splitlines():
+        if satir.startswith("ATOLYE_YOL="):
+            yol = satir[len("ATOLYE_YOL="):]
+        elif satir == "ATOLYE_GIT":
+            git = True
+        elif satir and yol:
+            klasorler.append(satir)
+    klasorler.sort(key=lambda a: (a.startswith("."), a.lower()))
+    return {"yol": yol, "git": git, "klasorler": klasorler[:2000]}
 
 
 async def ssh_anahtari_hazirla() -> str:
@@ -1930,13 +1974,7 @@ class CodexOturum(Oturum):
             r = prm.get("requestId")
             self.onay_kapandi(f"cx{r}")
         elif yontem == "account/rateLimits/updated":
-            lim, pencereler = prm.get("rateLimits") or {}, []
-            for k in ("primary", "secondary"):
-                w = lim.get(k)
-                if w and w.get("usedPercent") is not None:
-                    dk = w.get("windowDurationMins") or 0
-                    pencereler.append({"ad": {300: "5 saat", 10080: "hafta"}.get(dk, f"{dk // 60} saat"),
-                                       "kullanim": round(w["usedPercent"]), "sifirlanma": w.get("resetsAt")})
+            pencereler = codex_kota_pencereleri(prm.get("rateLimits") or {})
             if pencereler:
                 self.k.kota_ver("codex", pencereler)
         elif yontem == "error" and not prm.get("willRetry"):
@@ -2057,6 +2095,8 @@ class Kopru:
         self.istemciler: set = set()
         self.oturumlar: dict[str, Oturum] = {}
         self.kotalar: dict[str, list] = {}
+        self._kota_okundu = 0.0
+        self._kota_gorevi: asyncio.Task | None = None
         self._codex_modelleri: tuple[float, list] | None = None
         self._kur: dict | None = None      # çalışan ya da son biten kurulum
         self._giris: dict | None = None    # çalışan ya da son biten giriş akışı
@@ -2064,6 +2104,7 @@ class Kopru:
         (EV / "kayit").mkdir(parents=True, exist_ok=True)
         KOK.mkdir(parents=True, exist_ok=True)
         self._yukle()
+        self._kotalari_yukle()
 
     # --- kalıcılık
 
@@ -2073,6 +2114,14 @@ class Kopru:
             for v in json.loads(f.read_text()):
                 if v.get("ajan") in SURUCULER:
                     self.oturumlar[v["id"]] = SURUCULER[v["ajan"]](self, v)
+        except (OSError, ValueError):
+            pass
+
+    def _kotalari_yukle(self):
+        try:
+            v = json.loads((EV / "kotalar.json").read_text())
+            if isinstance(v, dict):
+                self.kotalar = {k: p for k, p in v.items() if isinstance(p, list)}
         except (OSError, ValueError):
             pass
 
@@ -2113,8 +2162,87 @@ class Kopru:
             self.istemciler.discard(ws)
 
     def kota_ver(self, ajan, pencereler):
+        for w in pencereler:
+            w.setdefault("okundu", int(time.time()))
         self.kotalar[ajan] = pencereler
+        try:
+            (EV / "kotalar.json").write_text(json.dumps(self.kotalar, ensure_ascii=False))
+        except OSError:
+            pass
         self.yayinla({"ev": "kota", "ajan": ajan, "pencereler": pencereler})
+
+    def kotalari_tazele(self, zorla: bool = False):
+        """Claude ve Codex'in kullanım sınırlarını arka planda okur (token harcamaz).
+        Bir tur bitince de ajanlar kendileri bildirir; bu, açılışta ve elle yenilemede
+        ikisinin de görünmesi için."""
+        if self._kota_gorevi and not self._kota_gorevi.done():
+            return
+        if not zorla and time.time() - self._kota_okundu < 300:
+            return
+        self._kota_okundu = time.time()
+        self._kota_gorevi = asyncio.create_task(self._kotalari_oku())
+
+    async def _kotalari_oku(self):
+        await asyncio.gather(self._claude_kota(), self._codex_kota(), return_exceptions=True)
+
+    async def _claude_kota(self):
+        if not shutil.which("claude"):
+            return
+        kod, out, _ = await calistir(["claude", "-p", "/usage", "--no-session-persistence",
+                                      "--output-format", "json"], cwd=EV, sure=60, girdi=b"")
+        if kod != 0:
+            return
+        try:
+            metin = json.loads(out).get("result") or ""
+        except ValueError:
+            metin = out
+        pencereler = []
+        for desen, ad in ((r"Current session:\s*(\d+)%", "5 saat"),
+                          (r"Current week \(all models\):\s*(\d+)%", "hafta")):
+            e = re.search(desen, metin)
+            if e:
+                pencereler.append({"ad": ad, "kullanim": int(e.group(1))})
+        if pencereler:
+            self.kota_ver("claude", pencereler)
+
+    async def _codex_kota(self):
+        yol = shutil.which("codex")
+        if not yol:
+            return
+        p = await asyncio.create_subprocess_exec(yol, "app-server", stdin=asyncio.subprocess.PIPE,
+                                                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+
+        async def yaz(o):
+            p.stdin.write((json.dumps(o) + "\n").encode())
+            await p.stdin.drain()
+
+        async def bekle(no):
+            while True:
+                satir = await p.stdout.readline()
+                if not satir:
+                    raise RuntimeError("codex yanıt vermedi")
+                try:
+                    j = json.loads(satir)
+                except ValueError:
+                    continue
+                if j.get("id") == no:
+                    return j
+
+        try:
+            await yaz({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                       "params": {"clientInfo": {"name": "atolye", "version": SURUM}}})
+            await asyncio.wait_for(bekle(1), 20)
+            await yaz({"jsonrpc": "2.0", "method": "initialized"})
+            await yaz({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read"})
+            yanit = await asyncio.wait_for(bekle(2), 30)
+        finally:
+            try:
+                p.kill()
+            except ProcessLookupError:
+                pass
+        pencereler = codex_kota_pencereleri((yanit.get("result") or {}).get("rateLimits") or {})
+        if pencereler:
+            self.kota_ver("codex", pencereler)
 
     # --- istekler
 
@@ -2484,6 +2612,7 @@ class Kopru:
     async def istek(self, ws, m: dict):
         op = m.get("op")
         if op == "durum":
+            self.kotalari_tazele()
             return {"surum": SURUM, "kok": str(KOK.resolve()), "ajanlar": await self.ajanlar(),
                     "kotalar": self.kotalar, "termux": "com.termux" in os.environ.get("PREFIX", ""),
                     "yetenekler": YETENEKLER}
@@ -2665,6 +2794,9 @@ class Kopru:
         if op == "kopru_guncelle":
             self.kopru_yaz(m.get("kopru") or "", m.get("rehber"))
             return {"yeniden": True}
+        if op == "kota_oku":
+            self.kotalari_tazele(zorla=True)
+            return {"kotalar": self.kotalar}
         if op == "araclar":
             return await self.araclar()
         if op == "modeller":
@@ -2785,6 +2917,11 @@ class Kopru:
             if not m.get("parola"):
                 raise ValueError("parola gerekli")
             return await anahtar_gonder(s, str(m["parola"]))
+        if op == "sunucu_listele":
+            s = self.sunucular().get(m.get("ad"))
+            if not s:
+                raise ValueError("sunucu bulunamadı")
+            return await uzak_listele(s, m.get("yol") or s.get("klasor") or "~", m.get("yeni"))
         if op == "sunucu_sil":
             hepsi = self.sunucular()
             hepsi.pop(m.get("ad"), None)

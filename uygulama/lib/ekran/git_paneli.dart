@@ -326,6 +326,7 @@ class _GitPaneliState extends State<GitPaneli> {
             const SizedBox(height: 10),
             TextField(
               controller: _mesaj,
+              onChanged: (_) => setState(() {}),
               minLines: 1,
               maxLines: 4,
               decoration: const InputDecoration(hintText: 'Commit mesajı'),
@@ -335,7 +336,7 @@ class _GitPaneliState extends State<GitPaneli> {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: mesgul
+                    onPressed: mesgul || _mesaj.text.trim().isEmpty
                         ? null
                         : () => _yap('commit', () async {
                             final sonuc = await _istek('git_commit', {

@@ -149,11 +149,25 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     super.initState();
     widget.calisma.paylasim.addListener(_paylasimiAl);
     WidgetsBinding.instance.addPostFrameCallback((_) => _paylasimiAl());
+    widget.sohbet.addListener(_ulasmayaniAl);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ulasmayaniAl());
+  }
+
+  /// Başlangıç ekranından gönderilip ulaşmayan ilk mesajı kutuya geri koy.
+  void _ulasmayaniAl() {
+    final g = widget.sohbet.gonderilemedi;
+    if (g == null || !mounted) return;
+    widget.sohbet.gonderilemedi = null;
+    if (_yazi.text.trim().isEmpty) _yazi.text = g.metin;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Mesaj gönderilemedi: ${g.hata}')));
   }
 
   @override
   void dispose() {
     widget.calisma.paylasim.removeListener(_paylasimiAl);
+    widget.sohbet.removeListener(_ulasmayaniAl);
     _yazi.dispose();
     super.dispose();
   }
@@ -265,6 +279,9 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     try {
       await s.gonder(metin, ekler: ekler);
     } catch (e) {
+      // Ulaşmadı: yazılan metin ve ekler kaybolmasın.
+      if (_yazi.text.trim().isEmpty) _yazi.text = metin;
+      if (mounted) setState(() => _ekler.addAll(ekler));
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Gönderilemedi: $e')));
@@ -380,6 +397,27 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
             Expanded(
               child: s.yukleniyor
                   ? const Center(child: CircularProgressIndicator())
+                  : bloklar.isEmpty && s.yuklemeHatasi != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Sohbet yüklenemedi: ${s.yuklemeHatasi}',
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton.tonalIcon(
+                              onPressed: s.gecmisiYukle,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Yeniden dene'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   : bloklar.isEmpty
                   ? _Bos(sohbet: s)
                   : ListView.builder(
@@ -569,7 +607,10 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     ),
     _DosyaBlok(:final dosyalar) => _Dosyalar(dosyalar: dosyalar, ac: _dosyaAc),
     _BittiBlok(:final oge) => _BittiSatiri(oge: oge),
-    _UyariBlok(:final metin, :final bilgi) => _UyariSatiri(metin: metin, bilgi: bilgi),
+    _UyariBlok(:final metin, :final bilgi) => _UyariSatiri(
+      metin: metin,
+      bilgi: bilgi,
+    ),
   };
 }
 

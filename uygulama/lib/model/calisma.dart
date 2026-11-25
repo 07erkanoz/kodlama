@@ -37,7 +37,7 @@ class Calisma extends ChangeNotifier {
 
   /// Bu uygulamanın beklediği en düşük köprü sürümü. Köprüye yeni bir işlem
   /// eklenince artırılır; telefondaki köprü daha eskiyse güncelleme önerilir.
-  static const gerekenKopruSurumu = '0.10.0';
+  static const gerekenKopruSurumu = '0.11.0';
   String? kopruSurumu;
   bool kopruGuncelleniyor = false;
   KurulumSunucusu? _kurulumSunucusu;
@@ -206,7 +206,11 @@ class Calisma extends ChangeNotifier {
   }
 
   Future<void> sec(Map<String, dynamic> ozet) async {
-    if (secili?.id == ozet['id']) return;
+    if (secili?.id == ozet['id']) {
+      // Aynı oturum: geçmiş yüklenememişse yeniden dene.
+      if (secili!.yuklemeHatasi != null) await secili!.gecmisiYukle();
+      return;
+    }
     secili?.dispose();
     final s = Sohbet(istemci, ozet);
     secili = s;
@@ -473,13 +477,20 @@ class Calisma extends ChangeNotifier {
     );
     final s = secili;
     if (s == null) return;
-    final ekler = <String>[];
-    for (final e in yerelEkler) {
-      ekler.add(
-        await s.ekYukle(e.ad, base64Encode(await yerelDosyaOku(e.yol))),
-      );
+    try {
+      final ekler = <String>[];
+      for (final e in yerelEkler) {
+        ekler.add(
+          await s.ekYukle(e.ad, base64Encode(await yerelDosyaOku(e.yol))),
+        );
+      }
+      await s.gonder(metin, ekler: ekler);
+    } catch (e) {
+      // Oturum açıldı ama mesaj ulaşmadı: başlangıç ekranı kapandığı için
+      // hata orada gösterilemez; metin sohbetin yazma kutusuna geri konur.
+      s.gonderilemedi = (metin: metin, hata: '$e');
+      notifyListeners();
     }
-    await s.gonder(metin, ekler: ekler);
   }
 
   Future<String> projeOlustur(String ad) async {
@@ -524,6 +535,15 @@ class Calisma extends ChangeNotifier {
     kenarCubugu = !kenarCubugu;
     ayarlar.kenarCubugu = kenarCubugu;
     notifyListeners();
+  }
+
+  /// Claude ve Codex kullanım sınırlarını yeniden okut (token harcamaz);
+  /// sonuçlar 'kota' olaylarıyla gelir.
+  Future<void> kotaYenile() async {
+    if (!yetenek('kota_oku')) return;
+    try {
+      await istemci.iste('kota_oku');
+    } catch (_) {}
   }
 
   void onizle(String? yol) {

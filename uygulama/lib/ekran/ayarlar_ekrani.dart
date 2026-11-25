@@ -389,7 +389,6 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
     );
   }
 
-
   Widget _sesBolumu(ThemeData t) => _Bolum(
     simge: Icons.graphic_eq_rounded,
     baslik: 'Yankı ve sesli konuşma',
@@ -678,10 +677,33 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
               ),
               IconButton(
                 tooltip: 'Sil',
-                onPressed: () => _yap(
-                  'sil',
-                  () => c.istemci.iste('sunucu_sil', {'ad': ad}),
-                ),
+                onPressed: () async {
+                  final evet = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: Text('$ad silinsin mi?'),
+                      content: const Text(
+                        "Yalnız Atölye'deki kayıt silinir; sunucuya dokunulmaz.",
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Vazgeç'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Sil'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (evet == true) {
+                    await _yap(
+                      'sil',
+                      () => c.istemci.iste('sunucu_sil', {'ad': ad}),
+                    );
+                  }
+                },
                 icon: const Icon(Icons.delete_outline),
               ),
             ],
