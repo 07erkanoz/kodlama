@@ -94,6 +94,11 @@ class Ayarlar {
   void sonUzakKlasorYaz(String sunucu, String yol) =>
       _p.setString('uzakKlasor:$sunucu', yol);
 
+  /// Atölye açıkken bildirim alanında küçük bir servis dursun; Android arka
+  /// plandaki uygulamayı öldürmesin.
+  bool get arkaPlandaAcik => _p.getBool('arkaPlandaAcik') ?? true;
+  set arkaPlandaAcik(bool v) => _p.setBool('arkaPlandaAcik', v);
+
   static String? _bos(String? v) => v == null || v.isEmpty ? null : v;
 
   /// Sesli konuşma (Yankı görünümünde) doğrudan tam ekran açılsın mı.

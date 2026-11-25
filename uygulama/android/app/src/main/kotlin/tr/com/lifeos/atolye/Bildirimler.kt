@@ -57,18 +57,28 @@ object Bildirimler {
         )
     }
 
-    fun calisanBildirimi(baglam: Context, baslik: String, metin: String, oturum: String?): Notification =
-        NotificationCompat.Builder(baglam, KANAL_CALISAN)
+    fun calisanBildirimi(
+        baglam: Context, baslik: String, metin: String, oturum: String?, ilerleme: Boolean,
+    ): Notification {
+        val cik = PendingIntent.getService(
+            baglam, 1,
+            Intent(baglam, AtolyeServisi::class.java).setAction(AtolyeServisi.CIK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val b = NotificationCompat.Builder(baglam, KANAL_CALISAN)
             .setSmallIcon(R.drawable.ic_bildirim)
             .setContentTitle(baslik)
             .setContentText(metin)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setProgress(0, 0, true)
+            .setShowWhen(false)
+            .setCategory(if (ilerleme) NotificationCompat.CATEGORY_PROGRESS else NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(acmaNiyeti(baglam, oturum, 0))
-            .build()
+            .addAction(0, "Atölye'den çık", cik)
+        if (ilerleme) b.setProgress(0, 0, true)
+        return b.build()
+    }
 
     fun goster(baglam: Context, kimlik: Int, baslik: String, metin: String, oturum: String?, onemli: Boolean) {
         val bildirim = NotificationCompat.Builder(baglam, KANAL_OLAYLAR)
@@ -92,30 +102,65 @@ object Bildirimler {
 }
 
 /**
- * Bir ajan çalıştığı sürece açık kalan ön plan servisi. İş yapmaz; yalnızca
- * sürecin önceliğini yüksek tutar ve "çalışıyor" bildirimini taşır.
+ * Atölye açıkken bildirim alanında duran ön plan servisi. İş yapmaz; sürecin
+ * önceliğini yüksek tutar ki Android arka plandaki uygulamayı öldürmesin ve
+ * köprüden gelen olaylar kaçmasın. Ajan çalışırken "çalışıyor", sesli
+ * konuşmada mikrofon türüyle çalışır. "Atölye'den çık" süreci kapatır.
  */
 class AtolyeServisi : Service() {
+    companion object {
+        const val CIK = "tr.com.lifeos.atolye.CIK"
+
+        /** Servis ön planda mı, mikrofon türüyle mi. */
+        @Volatile var calisiyor = false
+        @Volatile var mikrofonla = false
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == CIK) {
+            calisiyor = false
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            // Kullanıcı Atölye'yi bilerek kapattı: ekran ve süreç de kapansın.
+            android.os.Process.killProcess(android.os.Process.myPid())
+            return START_NOT_STICKY
+        }
         Bildirimler.kanallariKur(this)
+        val ses = intent?.getBooleanExtra("ses", false) == true
         val bildirim = Bildirimler.calisanBildirimi(
             this,
-            intent?.getStringExtra("baslik") ?: "Ajan çalışıyor",
+            intent?.getStringExtra("baslik") ?: "Atölye açık",
             intent?.getStringExtra("metin") ?: "",
             intent?.getStringExtra("oturum"),
+            intent?.getBooleanExtra("ilerleme", true) ?: true,
         )
-        val tur = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        } else {
-            0
+        var tur = 0
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            tur = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         }
-        ServiceCompat.startForeground(this, Bildirimler.SERVIS_KIMLIGI, bildirim, tur)
+        if (ses && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            tur = tur or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+        try {
+            ServiceCompat.startForeground(this, Bildirimler.SERVIS_KIMLIGI, bildirim, tur)
+            mikrofonla = ses
+        } catch (e: Exception) {
+            // Mikrofon türü reddedildiyse (izin yok) mikrofonsuz sürdür.
+            ServiceCompat.startForeground(
+                this, Bildirimler.SERVIS_KIMLIGI, bildirim,
+                tur and ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE.inv(),
+            )
+            mikrofonla = false
+        }
+        calisiyor = true
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        calisiyor = false
+        mikrofonla = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }

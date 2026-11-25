@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -60,10 +61,28 @@ class MainActivity : FlutterActivity() {
                         val niyet = Intent(this@MainActivity, AtolyeServisi::class.java)
                         try {
                             if (call.argument<Boolean>("calisiyor") == true) {
-                                niyet.putExtra("baslik", call.argument<String>("baslik"))
-                                niyet.putExtra("metin", call.argument<String>("metin"))
-                                niyet.putExtra("oturum", call.argument<String>("oturum"))
-                                ContextCompat.startForegroundService(this@MainActivity, niyet)
+                                val baslik = call.argument<String>("baslik") ?: "Atölye açık"
+                                val metin = call.argument<String>("metin") ?: ""
+                                val oturum = call.argument<String>("oturum")
+                                val ilerleme = call.argument<Boolean>("ilerleme") ?: true
+                                val ses = call.argument<Boolean>("ses") == true
+                                if (AtolyeServisi.calisiyor && AtolyeServisi.mikrofonla == ses) {
+                                    // Servis zaten açık: yalnız bildirimi güncelle (arka plandan
+                                    // servis yeniden başlatmak Android 12+ yasak).
+                                    try {
+                                        NotificationManagerCompat.from(this@MainActivity).notify(
+                                            Bildirimler.SERVIS_KIMLIGI,
+                                            Bildirimler.calisanBildirimi(this@MainActivity, baslik, metin, oturum, ilerleme),
+                                        )
+                                    } catch (_: SecurityException) {}
+                                } else {
+                                    niyet.putExtra("baslik", baslik)
+                                    niyet.putExtra("metin", metin)
+                                    niyet.putExtra("oturum", oturum)
+                                    niyet.putExtra("ilerleme", ilerleme)
+                                    niyet.putExtra("ses", ses)
+                                    ContextCompat.startForegroundService(this@MainActivity, niyet)
+                                }
                             } else {
                                 stopService(niyet)
                             }
@@ -83,6 +102,33 @@ class MainActivity : FlutterActivity() {
                             call.argument<Boolean>("onemli") ?: false,
                         )
                         result.success(null)
+                    }
+                    "pilMuaf" -> {
+                        val pm = getSystemService(android.os.PowerManager::class.java)
+                        result.success(pm.isIgnoringBatteryOptimizations(packageName))
+                    }
+                    "pilIzniIste" -> {
+                        try {
+                            startActivity(
+                                Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                    .setData(android.net.Uri.parse("package:$packageName")),
+                            )
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "termuxPilAyari" -> {
+                        // Termux'un uygulama bilgisi: oradan pil kullanımı "Kısıtlamasız" yapılır.
+                        try {
+                            startActivity(
+                                Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                    .setData(android.net.Uri.parse("package:com.termux")),
+                            )
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
                     }
                     "iptal" -> {
                         Bildirimler.iptal(this@MainActivity, call.argument<Int>("kimlik") ?: 0)

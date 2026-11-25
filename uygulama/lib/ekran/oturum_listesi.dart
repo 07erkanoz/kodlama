@@ -31,12 +31,18 @@ class OturumListesi extends StatelessWidget {
               bugun.day,
             ).millisecondsSinceEpoch /
             1000;
-        final bugunku = [
+        // Asistan sohbetleri kendi grubunda; projelerle karışmaz.
+        final projeler = [
           for (final o in c.oturumlar)
+            if (o['asistan'] != true) o,
+        ];
+        final asistan = c.asistanOturumlari;
+        final bugunku = [
+          for (final o in projeler)
             if ((o['guncelleme'] as num? ?? 0) >= gunBasi) o,
         ];
         final onceki = [
-          for (final o in c.oturumlar)
+          for (final o in projeler)
             if ((o['guncelleme'] as num? ?? 0) < gunBasi) o,
         ];
         return Material(
@@ -115,6 +121,10 @@ class OturumListesi extends StatelessWidget {
                             if (onceki.isNotEmpty) ...[
                               const _Baslik('Önceki'),
                               for (final o in onceki) _satir(context, o),
+                            ],
+                            if (asistan.isNotEmpty) ...[
+                              const _Baslik('Asistan'),
+                              for (final o in asistan) _satir(context, o),
                             ],
                           ],
                         ),

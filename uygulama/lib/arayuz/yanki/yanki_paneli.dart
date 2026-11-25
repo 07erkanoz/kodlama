@@ -283,7 +283,7 @@ class _YankiAyarlariState extends State<YankiAyarlari> {
         baslik('Kim ne yapsın'),
         kart(
           'codex',
-          Icons.bolt_rounded,
+          Icons.record_voice_over_outlined,
           'Hepsi Codex',
           'Codex hem konuşur hem işi yapar. En az kota.',
           () => _degis(
@@ -297,7 +297,7 @@ class _YankiAyarlariState extends State<YankiAyarlari> {
         ),
         kart(
           'claude',
-          Icons.handshake_outlined,
+          Icons.engineering_outlined,
           'Codex konuşur, Claude çalışır',
           'Sesle ve yazıyla istediğin işi Claude yapar.',
           () => _degis(

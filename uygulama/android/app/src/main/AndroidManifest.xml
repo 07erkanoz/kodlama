@@ -17,10 +17,14 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
     <!-- Kulaklık (Bluetooth) ses yönlendirmesi; Android 11 ve öncesi. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
-    <!-- Ajan çalışırken uygulama arka planda kapanmasın: yalnız iş sürerken açık kalan
-         ön plan servisi. -->
+    <!-- Atölye arka planda kapanmasın: bildirim alanında küçük bir ön plan servisi
+         (ayarlardan kapatılabilir). Sesli konuşmada mikrofon türüyle çalışır ki ekran
+         kilitlense de ses kesilmesin. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <!-- Kullanıcı isterse pil kısıtlamasından muaf tutulmak için sistemin sorusunu açar. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <application
         android:label="Atölye"
         android:name="${applicationName}"
@@ -63,10 +67,10 @@
         <service
             android:name=".AtolyeServisi"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|microphone">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Telefondaki yerel yapay zekâ ajanı çalışırken uygulamanın köprü bağlantısını açık tutar ve iş bitince ya da onay gerekince bildirir." />
+                android:value="Telefondaki yerel yapay zekâ ajanlarına (Termux köprüsü) bağlantıyı arka planda açık tutar; ajan onay isteyince ya da iş bitince bildirir." />
         </service>
         <provider
             android:name="androidx.core.content.FileProvider"

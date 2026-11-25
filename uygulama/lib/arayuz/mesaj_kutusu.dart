@@ -367,17 +367,17 @@ const calismaBicimleri = <(String, String, String, IconData)>[
     'otomatik',
     'Otomatik',
     'Güvenli işleri kendisi onaylar, yalnız riskli olanları sorar',
-    Icons.auto_mode,
+    Icons.verified_user_outlined,
   ),
-  ('sor', 'Sor', 'Her değişiklik ve komut için onay', Icons.back_hand_outlined),
+  ('sor', 'Sor', 'Her değişiklik ve komut için onay', Icons.help_outline_rounded),
   (
     'duzenle',
     'Düzenle',
     'Dosya düzenlemeleri serbest, komutlarda sor',
     Icons.edit_note,
   ),
-  ('plan', 'Plan', 'Yalnız okur ve plan yapar', Icons.map_outlined),
-  ('serbest', 'Serbest', 'Sormadan çalışır', Icons.bolt),
+  ('plan', 'Plan', 'Yalnız okur ve plan yapar', Icons.checklist_rounded),
+  ('serbest', 'Serbest', 'Sormadan çalışır', Icons.lock_open_rounded),
 ];
 
 (String, String, String, IconData) bicim(String kod) => calismaBicimleri

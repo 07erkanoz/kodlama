@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import 'ajan_isareti.dart';
+
 import 'tema.dart';
 
 const monospace = TextStyle(
@@ -72,16 +74,16 @@ class AjanRozeti extends StatelessWidget {
             height: boyut,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: renk.withValues(alpha: .14),
+              color: ajan == 'claude'
+                  ? renk.withValues(alpha: .14)
+                  : r.onSurface.withValues(alpha: .08),
               borderRadius: BorderRadius.circular(boyut * .3),
             ),
-            child: Text(
-              ajan == 'claude' ? 'C' : 'X',
-              style: TextStyle(
-                color: renk,
-                fontWeight: FontWeight.w800,
-                fontSize: boyut * .46,
-              ),
+            // Claude turuncu; Codex'in işareti tek renk (temaya göre siyah/beyaz).
+            child: AjanIsareti(
+              ajan: ajan,
+              boyut: boyut * .6,
+              renk: ajan == 'claude' ? renk : r.onSurface,
             ),
           ),
           if (calisiyor)

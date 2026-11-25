@@ -101,6 +101,11 @@ class Sohbet extends ChangeNotifier {
   final _onaylar = <String, OnayOge>{};
   bool yukleniyor = false;
 
+  /// Dosya panelinde en son bakılan klasör ve sekme: telefonda çekmece her
+  /// açılışta yeniden kurulur, kaldığı yerden açılsın diye burada tutulur.
+  String? panelKlasoru;
+  int panelSekmesi = 0;
+
   /// Geçmiş yüklenemediyse nedeni (sohbet ekranı "Yeniden dene" gösterir).
   String? yuklemeHatasi;
 

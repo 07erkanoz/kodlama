@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../arayuz/ortak.dart';
 import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
+import '../servis/bildirim.dart';
 import '../servis/termux.dart';
 import 'giris_penceresi.dart';
 import 'kurulum_paneli.dart';
@@ -145,6 +146,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                 children: [
                   _ajanlarBolumu(t),
                   _sesBolumu(t),
+                  if (Bildirim.destekleniyor) _ArkaPlanBolumu(calisma: c),
                   _termuxBolumu(t),
                   _Bolum(
                     simge: Icons.hub_outlined,
@@ -1110,6 +1112,115 @@ class _BaglantiRehberi extends StatelessWidget {
           style: kucuk,
         ),
       ],
+    );
+  }
+}
+
+/// Arka planda çalışma: bildirim alanındaki servis ve pil kısıtlamaları.
+/// Android, kısıtlanan uygulamaları arka planda öldürür; Atölye de köprüyü
+/// çalıştıran Termux da muaf olmalı.
+class _ArkaPlanBolumu extends StatefulWidget {
+  const _ArkaPlanBolumu({required this.calisma});
+  final Calisma calisma;
+
+  @override
+  State<_ArkaPlanBolumu> createState() => _ArkaPlanBolumuState();
+}
+
+class _ArkaPlanBolumuState extends State<_ArkaPlanBolumu>
+    with WidgetsBindingObserver {
+  bool? _muaf;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _bak();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Sistem sorusundan dönünce durumu yeniden oku.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.resumed) _bak();
+  }
+
+  Future<void> _bak() async {
+    final m = await Bildirim.pilMuaf();
+    if (mounted) setState(() => _muaf = m);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    final c = widget.calisma;
+    return _Bolum(
+      simge: Icons.notifications_active_outlined,
+      baslik: 'Arka planda çalışma',
+      aciklama:
+          'Telefon kilitlense ya da başka uygulamaya geçsen de Atölye ve '
+          'ajanlar çalışmayı sürdürsün.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Bildirim alanında açık kal'),
+            subtitle: const Text(
+              'Küçük, sessiz bir "Atölye açık" bildirimi durur; Android '
+              'uygulamayı arka planda kapatmaz. Ajan çalışırken ve sesli '
+              'konuşmada her zaman açıktır. Bildirimdeki "Atölye\'den çık" '
+              'ile kapatabilirsin.',
+            ),
+            value: c.ayarlar.arkaPlandaAcik,
+            onChanged: (v) => setState(() => c.arkaPlandaAcikDegistir(v)),
+          ),
+          const Divider(),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              _muaf == true
+                  ? Icons.battery_full_rounded
+                  : Icons.battery_alert_rounded,
+              color: _muaf == true ? r.primary : r.error,
+            ),
+            title: const Text('Atölye için pil kısıtlaması'),
+            subtitle: Text(
+              _muaf == null
+                  ? '…'
+                  : _muaf!
+                  ? 'Kısıtlama yok: arka planda kapatılmaz.'
+                  : 'Kısıtlı: Android arka planda uygulamayı durdurabilir.',
+            ),
+            trailing: _muaf == false
+                ? FilledButton.tonal(
+                    onPressed: Bildirim.pilIzniIste,
+                    child: const Text('Kaldır'),
+                  )
+                : null,
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.terminal_rounded),
+            title: const Text('Termux için pil kısıtlaması'),
+            subtitle: const Text(
+              'Köprü ve ajanlar Termux\'ta çalışır. Termux\'un ayarında '
+              'Pil > "Kısıtlamasız" seç. Kurulum betiği Termux\'ta uyanık '
+              'kalma kilidini (termux-wake-lock) de açar.',
+            ),
+            trailing: TextButton(
+              onPressed: Bildirim.termuxPilAyari,
+              child: const Text('Aç'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

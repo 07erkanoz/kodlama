@@ -717,7 +717,7 @@ class _CalisiyorState extends State<_Calisiyor> {
             width: 14,
             height: 14,
             child: e.onay
-                ? Icon(Icons.pause_circle_outline, size: 14, color: r.primary)
+                ? Icon(Icons.front_hand_outlined, size: 14, color: r.primary)
                 : CircularProgressIndicator(strokeWidth: 2, color: r.primary),
           ),
           const SizedBox(width: 10),

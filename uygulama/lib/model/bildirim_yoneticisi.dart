@@ -6,6 +6,7 @@ import '../arayuz/ortak.dart';
 import '../servis/bildirim.dart';
 import '../servis/kopru_istemci.dart';
 import 'calisma.dart';
+import 'sesli_konusma.dart';
 
 /// Ajanların durumunu bildirimlere çevirir:
 ///
@@ -19,6 +20,7 @@ class BildirimYoneticisi {
     _yasam = AppLifecycleListener(onStateChange: _yasamDegisti);
     c.addListener(_servisiGuncelle);
     c.kurulum.addListener(_servisiGuncelle);
+    SesliKonusma.herhangiAcik.addListener(_servisiGuncelle);
     _abone = c.olaylar.listen(_olay);
     Bildirim.acilinca(_oturumuAc);
     unawaited(_acilistaOturum());
@@ -35,6 +37,7 @@ class BildirimYoneticisi {
     _yasam.dispose();
     c.removeListener(_servisiGuncelle);
     c.kurulum.removeListener(_servisiGuncelle);
+    SesliKonusma.herhangiAcik.removeListener(_servisiGuncelle);
     _abone?.cancel();
   }
 
@@ -67,9 +70,17 @@ class BildirimYoneticisi {
         if (o['durum'] == 'calisiyor') o,
     ];
     var calisiyor = true;
+    var ilerleme = true;
+    final ses = SesliKonusma.herhangiAcik.value;
     String baslik, metin;
     String? oturum;
-    if (calisanlar.isNotEmpty) {
+    if (ses) {
+      oturum = c.secili?.id;
+      baslik = 'Sesli konuşma sürüyor';
+      metin = calisanlar.isNotEmpty
+          ? '${ajanAdi(calisanlar.first['ajan'] as String? ?? '')} çalışıyor'
+          : 'Ekran kilitliyken de dinliyor';
+    } else if (calisanlar.isNotEmpty) {
       final ilk = calisanlar.first;
       oturum = ilk['id'] as String?;
       baslik = calisanlar.length == 1
@@ -79,11 +90,17 @@ class BildirimYoneticisi {
     } else if (c.kurulum.calisiyor) {
       baslik = 'Kurulum sürüyor';
       metin = c.kurulum.adim;
+    } else if (c.ayarlar.arkaPlandaAcik && c.baglanti == BaglantiDurumu.bagli) {
+      // Boşta ama bağlı: küçük, sessiz bildirim; Atölye arka planda yaşar.
+      ilerleme = false;
+      baslik = 'Atölye açık';
+      final n = c.oturumlar.length;
+      metin = n == 0 ? 'Köprüye bağlı' : 'Köprüye bağlı · $n oturum';
     } else {
       calisiyor = false;
       baslik = metin = '';
     }
-    final anahtar = '$calisiyor|$baslik|$metin';
+    final anahtar = '$calisiyor|$ses|$baslik|$metin';
     if (anahtar == _sonServis) return;
     final ilkKez = calisiyor && !_sonServis.startsWith('true');
     _sonServis = anahtar;
@@ -97,6 +114,8 @@ class BildirimYoneticisi {
       baslik: baslik,
       metin: metin,
       oturum: oturum,
+      ilerleme: ilerleme,
+      ses: ses,
     );
   }
 
@@ -127,9 +146,7 @@ class BildirimYoneticisi {
         _goster(
           null,
           basarili ? 'Kurulum tamamlandı' : 'Kurulum tamamlanamadı',
-          basarili
-              ? 'Atölye hazır.'
-              : 'Ayrıntılar için Atölye\'yi aç.',
+          basarili ? 'Atölye hazır.' : 'Ayrıntılar için Atölye\'yi aç.',
         );
       case 'giris' when e['tur'] == 'bitti' && e['basarili'] == true:
         _goster(

@@ -480,7 +480,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                           ],
                         ),
                       ],
-                      if (c.oturumlar.isNotEmpty) ...[
+                      if (c.oturumlar.any((o) => o['asistan'] != true)) ...[
                         const SizedBox(height: 32),
                         const _BolumBasligi('Son oturumlar'),
                         const SizedBox(height: 8),
@@ -488,7 +488,10 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                           child: Column(
                             children: [
                               for (final (i, o)
-                                  in c.oturumlar.take(5).indexed) ...[
+                                  in c.oturumlar
+                                      .where((o) => o['asistan'] != true)
+                                      .take(5)
+                                      .indexed) ...[
                                 if (i > 0)
                                   Divider(height: 1, color: r.outlineVariant),
                                 ListTile(
@@ -832,54 +835,134 @@ class _AsistanKartiState extends State<_AsistanKarti> {
     }
   }
 
+  bool _hepsi = false;
+
+  static String _zaman(num? sn) {
+    if (sn == null) return '';
+    final d = DateTime.fromMillisecondsSinceEpoch((sn * 1000).toInt());
+    final simdi = DateTime.now();
+    String iki(int x) => x.toString().padLeft(2, '0');
+    final saat = '${iki(d.hour)}:${iki(d.minute)}';
+    if (d.year == simdi.year && d.month == simdi.month && d.day == simdi.day) {
+      return saat;
+    }
+    final dun = simdi.subtract(const Duration(days: 1));
+    if (d.year == dun.year && d.month == dun.month && d.day == dun.day) {
+      return 'Dün $saat';
+    }
+    return '${iki(d.day)}.${iki(d.month)} $saat';
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final r = t.colorScheme;
+    final c = widget.calisma;
+    final gecmis = c.asistanOturumlari;
+    final gorunen = _hepsi ? gecmis : gecmis.take(3).toList();
     return Material(
       color: r.secondaryContainer.withValues(alpha: .55),
       borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: _aciliyor ? null : _ac,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-          child: Row(
-            children: [
-              Icon(Icons.graphic_eq_rounded, color: r.onSecondaryContainer),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Asistan',
-                      style: t.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: _aciliyor ? null : _ac,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.graphic_eq_rounded, color: r.onSecondaryContainer),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Asistan · yeni sohbet',
+                          style: t.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          'Projeden bağımsız. Codex konuşur, ağır işleri '
+                          'Claude yapar; seçtiğin cihazın LifeOS araçlarını kullanır.',
+                          style: t.textTheme.bodySmall?.copyWith(
+                            color: r.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      'Projeden bağımsız. Codex konuşur, ağır işleri '
-                      'Claude yapar; seçtiğin cihazın LifeOS araçlarını kullanır.',
-                      style: t.textTheme.bodySmall?.copyWith(
-                        color: r.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                  ),
+                  _aciliyor
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : Icon(Icons.add_rounded, color: r.onSecondaryContainer),
+                ],
+              ),
+            ),
+          ),
+          if (gecmis.isNotEmpty) ...[
+            Divider(height: 1, color: r.outlineVariant),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
+              child: Text(
+                'Asistan geçmişi',
+                style: t.textTheme.labelSmall?.copyWith(
+                  color: r.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              _aciliyor
-                  ? const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            for (final o in gorunen)
+              InkWell(
+                onTap: () => c.sec(o),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 16,
+                        color: r.onSurfaceVariant,
                       ),
-                    )
-                  : const Icon(Icons.chevron_right),
-            ],
-          ),
-        ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          o['baslik'] as String? ?? 'Asistan',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: t.textTheme.bodyMedium,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _zaman(o['guncelleme'] as num?),
+                        style: t.textTheme.labelSmall?.copyWith(
+                          color: r.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (gecmis.length > 3)
+              TextButton(
+                onPressed: () => setState(() => _hepsi = !_hepsi),
+                child: Text(
+                  _hepsi ? 'Daha az göster' : 'Tümü (${gecmis.length})',
+                ),
+              )
+            else
+              const SizedBox(height: 6),
+          ],
+        ],
       ),
     );
   }

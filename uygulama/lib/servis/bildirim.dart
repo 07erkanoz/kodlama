@@ -33,12 +33,25 @@ abstract final class Bildirim {
     String baslik = '',
     String metin = '',
     String? oturum,
+    bool ilerleme = true,
+    bool ses = false,
   }) => _cagir<void>('servis', {
     'calisiyor': calisiyor,
     'baslik': baslik,
     'metin': metin,
     'oturum': oturum,
+    'ilerleme': ilerleme,
+    'ses': ses,
   });
+
+  /// Atölye pil kısıtlamasından muaf mı (Android'in arka planda öldürmemesi için).
+  static Future<bool?> pilMuaf() => _cagir<bool>('pilMuaf');
+
+  /// Sistemin "pil kısıtlamasını kaldır" sorusunu açar.
+  static Future<void> pilIzniIste() => _cagir<void>('pilIzniIste');
+
+  /// Termux'un uygulama ayarlarını açar (pil kullanımı: Kısıtlamasız).
+  static Future<void> termuxPilAyari() => _cagir<void>('termuxPilAyari');
 
   static Future<void> goster({
     required int kimlik,

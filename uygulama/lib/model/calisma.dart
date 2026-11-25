@@ -247,12 +247,14 @@ class Calisma extends ChangeNotifier {
   }
 
   /// Asistan'ı aç: varsa en son Asistan oturumu, yoksa yenisi (Codex).
+  /// Asistan oturumları, en yenisi önce (başlangıçtaki geçmiş listesi).
+  List<Map<String, dynamic>> get asistanOturumlari => [
+    for (final o in oturumlar)
+      if (o['asistan'] == true) o,
+  ];
+
+  /// Her dokunuşta yeni bir Asistan oturumu açar; eskileri geçmişten açılır.
   Future<void> asistanAc() async {
-    final var_ = oturumlar.where((o) => o['asistan'] == true).firstOrNull;
-    if (var_ != null) {
-      await sec(var_);
-      return;
-    }
     final y = YankiSecimi.varsayilan(ayarlar);
     final r = await istemci.iste('oturum_ac', {
       'ajan': 'codex',
@@ -530,6 +532,12 @@ class Calisma extends ChangeNotifier {
   final _terminaller = <String, TerminalOturumu>{};
   TerminalOturumu terminal(String cwd) =>
       _terminaller[cwd] ??= TerminalOturumu(istemci, cwd);
+
+  /// Arka planda açık kalma ayarı (bildirim alanındaki servis).
+  void arkaPlandaAcikDegistir(bool v) {
+    ayarlar.arkaPlandaAcik = v;
+    notifyListeners();
+  }
 
   void kenarCubuguDegistir() {
     kenarCubugu = !kenarCubugu;

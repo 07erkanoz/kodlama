@@ -67,6 +67,16 @@ class SesliKonusma extends ChangeNotifier {
 
   bool get acik => durum != SesDurumu.kapali;
 
+  /// Herhangi bir sesli konuşma açık mı: arka plan servisi bunu izleyip
+  /// mikrofon türüne geçer (ekran kilitlenince ses kesilmesin).
+  static final herhangiAcik = ValueNotifier<bool>(false);
+
+  @override
+  void notifyListeners() {
+    herhangiAcik.value = acik;
+    super.notifyListeners();
+  }
+
   void _ver(SesDurumu d) {
     if (durum == d) return;
     durum = d;
@@ -248,6 +258,7 @@ class SesliKonusma extends ChangeNotifier {
   @override
   void dispose() {
     _abone?.cancel();
+    herhangiAcik.value = false;
     unawaited(bitir());
     super.dispose();
   }

@@ -22,9 +22,15 @@ class DosyaPaneli extends StatefulWidget {
   State<DosyaPaneli> createState() => _DosyaPaneliState();
 }
 
-class _DosyaPaneliState extends State<DosyaPaneli> {
-  late String _klasor = widget.sohbet.cwd;
+class _DosyaPaneliState extends State<DosyaPaneli>
+    with SingleTickerProviderStateMixin {
+  late String _klasor = widget.sohbet.panelKlasoru ?? widget.sohbet.cwd;
   Future<Map<String, dynamic>>? _liste;
+  late final TabController _sekme = TabController(
+    length: 3,
+    vsync: this,
+    initialIndex: widget.sohbet.panelSekmesi.clamp(0, 2),
+  )..addListener(() => widget.sohbet.panelSekmesi = _sekme.index);
 
   @override
   void initState() {
@@ -33,16 +39,24 @@ class _DosyaPaneliState extends State<DosyaPaneli> {
   }
 
   @override
+  void dispose() {
+    _sekme.dispose();
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(DosyaPaneli old) {
     super.didUpdateWidget(old);
     if (old.sohbet.id != widget.sohbet.id) {
-      _klasor = widget.sohbet.cwd;
+      _klasor = widget.sohbet.panelKlasoru ?? widget.sohbet.cwd;
+      _sekme.index = widget.sohbet.panelSekmesi.clamp(0, 2);
       _yukle();
     }
   }
 
   void _yukle() {
     if (widget.sohbet.sunucu != null) return;
+    widget.sohbet.panelKlasoru = _klasor;
     setState(() {
       _liste = widget.calisma.istemci.iste('listele', {'yol': _klasor});
     });
@@ -51,32 +65,31 @@ class _DosyaPaneliState extends State<DosyaPaneli> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    return DefaultTabController(
-      length: 3,
-      child: Material(
-        color: t.colorScheme.surfaceContainerLow,
-        child: SafeArea(
-          left: false,
-          child: Column(
-            children: [
-              const TabBar(
-                tabs: [
-                  Tab(text: 'Bu oturum'),
-                  Tab(text: 'Klasör'),
-                  Tab(text: 'Git'),
+    return Material(
+      color: t.colorScheme.surfaceContainerLow,
+      child: SafeArea(
+        left: false,
+        child: Column(
+          children: [
+            TabBar(
+              controller: _sekme,
+              tabs: const [
+                Tab(text: 'Bu oturum'),
+                Tab(text: 'Klasör'),
+                Tab(text: 'Git'),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _sekme,
+                children: [
+                  _oturumDosyalari(t),
+                  widget.sohbet.sunucu != null ? _uzak(t) : _gezgin(t),
+                  GitPaneli(calisma: widget.calisma, sohbet: widget.sohbet),
                 ],
               ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _oturumDosyalari(t),
-                    widget.sohbet.sunucu != null ? _uzak(t) : _gezgin(t),
-                    GitPaneli(calisma: widget.calisma, sohbet: widget.sohbet),
-                  ],
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

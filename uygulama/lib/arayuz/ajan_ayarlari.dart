@@ -186,14 +186,18 @@ Widget modelCipi({
       builder: (context) {
         final r = Theme.of(context).colorScheme;
         return AracDugmesi(
-          ipucu: 'Onay biçimi',
+          ipucu: 'Onay biçimi: ${bc.$2}',
           onTap: etkin ? () => ac(context) : null,
           renk: a.mod == 'serbest'
               ? (r.brightness == Brightness.dark
                     ? const Color(0xFFFBBF24)
                     : const Color(0xFFB45309))
               : r.onSurfaceVariant,
-          cocuklar: [Icon(bc.$4), const SizedBox(width: 6), Text(bc.$2)],
+          // Telefonda yalnız simge: yazma kutusunun alt satırında model
+          // çipine yer kalsın (iş sürerken Durdur düğmesi de eklenir).
+          cocuklar: MediaQuery.sizeOf(context).width < 420
+              ? [Icon(bc.$4)]
+              : [Icon(bc.$4), const SizedBox(width: 6), Text(bc.$2)],
         );
       },
     ),

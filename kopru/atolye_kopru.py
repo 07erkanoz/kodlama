@@ -1380,10 +1380,22 @@ CLAUDE_SOR_ARACI = {
 CLAUDE_ASISTAN_REHBERI = (
     "Atölye'nin Asistan'ında, sesli ya da yazılı konuşan bir Codex ajanının sana devrettiği ağır işi "
     "yapıyorsun; cevabın ona araç sonucu olarak döner ve kullanıcıya okunabilir. Türkçe yaz. "
-    "MCP araçlarını (LifeOS, LifeOS Folio ve eklenen sunucular) kullan. Son mesajın, işin "
+    "MCP araçlarını (LifeOS, LifeOS Folio ve eklenen sunucular) kullan; seçili cihazda Linux komutu "
+    "gerekirse cihaz_kabuk aracını kullan (değiştiren komutlardan önce kullanıcıya sorulmadıysa yapma, "
+    "ne yapılması gerektiğini yaz). Son mesajın, işin "
     "kendisi ya da kısa ve eksiksiz sonucu olsun; ara açıklama yazma."
 )
 
+
+KABUK_NOTU = (
+    "{cihaz} makinesinde Linux komutu çalıştırmak için cihaz_kabuk aracının komut işlevi var "
+    "(SSH, kullanıcının hesabıyla, bash -lc). MCP araçlarında olmayan işleri onunla yap. Okuma "
+    "komutlarını (durum, log, disk, süreç, dosya okuma) çekinmeden çalıştır. Paket kurma/kaldırma, "
+    "dosya silme ya da üzerine yazma, servis başlatma/durdurma, yeniden başlatma, yapılandırma ve "
+    "güvenlik duvarı değişikliği gibi bir şey değiştiren komutlardan önce ne yapacağını ve neden "
+    "yapacağını kullanıcıya söyle, onayını al. sudo parola ister; önce sudo -n dene, olmazsa "
+    "kullanıcıya söyle. Etkileşimli komutlar (vim, top, less) çalışmaz; tek seferlik biçimlerini kullan."
+)
 
 # Seçilen cihazda aranan MCP programları: ad → (aranacak komutlar, argümanlar).
 CIHAZ_MCP = {
@@ -1416,13 +1428,15 @@ async def cihaz_mcp_bul(s: dict) -> dict[str, list[str]]:
 
 def cihaz_mcp_tanimlari(o: "Oturum") -> dict[str, dict]:
     """Asistan'ın cihazındaki MCP'ler, bu cihazdan SSH ile çalıştırılacak biçimde."""
-    if not o.cihaz or not o.cihaz_mcp:
+    if not o.cihaz:
         return {}
     s = o.k.sunucular().get(o.cihaz)
     if not s:
         return {}
-    tanim = {}
-    for ad, komut in o.cihaz_mcp.items():
+    # LifeOS kurulu olsun olmasın: cihazda SSH ile kabuk komutu çalıştıran araç.
+    tanim = {"cihaz_kabuk": {"command": sys.executable,
+                             "args": [str(Path(__file__).resolve()), "--kabuk-mcp", o.cihaz, str(EV.resolve())]}}
+    for ad, komut in (o.cihaz_mcp or {}).items():
         args = uzak_komut(s, "~", komut)
         tanim[f"cihaz_{ad}"] = {"command": args[0], "args": args[1:]}
     return tanim
@@ -1744,13 +1758,13 @@ class CodexOturum(Oturum):
 
     def _cihaz_notu(self) -> str:
         """Ajan hangi makinenin araçlarına sahip olduğunu bilsin; yoksa kullanıcıyı yönlendirsin."""
-        if self.cihaz and self.cihaz_mcp:
-            adlar = ", ".join(f"cihaz_{a}" for a in self.cihaz_mcp)
-            return (f"Denetlenen cihaz: {self.cihaz} (SSH). Bu makinenin MCP araçları: {adlar}. "
-                    "LifeOS, sunucu, Folio isteklerini bu araçlarla yap.")
         if self.cihaz:
-            return (f"Seçili cihaz {self.cihaz}, ama orada LifeOS MCP programı bulunamadı. Kullanıcı LifeOS "
-                    "isterse bunu söyle.")
+            kabuk = KABUK_NOTU.format(cihaz=self.cihaz)
+            if self.cihaz_mcp:
+                adlar = ", ".join(f"cihaz_{a}" for a in self.cihaz_mcp)
+                return (f"Denetlenen cihaz: {self.cihaz} (SSH). Bu makinenin MCP araçları: {adlar}. "
+                        "LifeOS, sunucu, Folio isteklerini önce bu araçlarla yap. " + kabuk)
+            return (f"Denetlenen cihaz: {self.cihaz} (SSH); orada LifeOS MCP programı bulunamadı. " + kabuk)
         return ("Şu an bağlı bir cihaz yok: LifeOS, LifeOS Folio ya da sunucu araçların yok. Kullanıcı bunları "
                 "isterse, uygulamada yazma kutusundaki \"Cihaz\" çipinden kayıtlı bir sunucu seçmesini söyle; "
                 "seçince araçlar bağlanır. Bağlanmış gibi davranma.")
@@ -1903,8 +1917,19 @@ class CodexOturum(Oturum):
                 # MCP aracı onayı (ör. LifeOS'un değiştiren araçları) ya da sunucunun sorusu
                 anahtar = f"cx{rid}"
                 self.onaylar[anahtar] = {"arac": f"MCP: {prm.get('serverName') or '?'}", "_id": rid, "_tur": "mcp"}
+                meta = prm.get("_meta") or {}
+                ozet = prm.get("message") or ""
+                if meta.get("codex_approval_kind") == "mcp_tool_call":
+                    # "Allow the X MCP server to run tool Y?" yerine ne yapılacağı görünsün.
+                    tp = meta.get("tool_params") or {}
+                    if prm.get("serverName") == "cihaz_kabuk" and tp.get("komut"):
+                        ozet = f"{self.cihaz or 'cihaz'} $ {tp['komut']}"
+                    else:
+                        degerler = ", ".join(f"{d.get('display_name') or d.get('name')}: {d.get('value')}"
+                                             for d in meta.get("tool_params_display") or [])
+                        ozet = f"{meta.get('tool_name') or 'araç'}" + (f" ({degerler})" if degerler else "")
                 self.yay({"ev": "onay", "rid": anahtar, "arac": f"MCP: {prm.get('serverName') or '?'}",
-                          "ozet": kisa(prm.get("message") or "", 300), "girdi": kisa(prm, 60000), "neden": ""})
+                          "ozet": kisa(ozet, 300), "girdi": kisa(prm, 60000), "neden": ""})
             elif yontem == "item/tool/requestUserInput" and prm.get("questions"):
                 q = prm["questions"][0]
                 secenek = [o.get("label", "") for o in q.get("options") or []]
@@ -1994,6 +2019,8 @@ class CodexOturum(Oturum):
                 metin = (prm.get("text") or "").strip()
                 rol = prm.get("role")
                 self.yay({"ev": "ses", "tur": "bitti", "rol": rol, "metin": metin}, kaydet=False)
+                if metin and rol == "user" and self.asistan and self.baslik == "Asistan":
+                    self.k.baslik_ver(self, metin)
                 if metin:  # konuşma sohbet geçmişine de yazılsın
                     self.yay({"ev": "kullanici", "metin": metin, "ekler": [], "sesli": True} if rol == "user"
                              else {"ev": "metin", "anahtar": f"ses{simdi()}", "metin": metin, "sesli": True})
@@ -2160,6 +2187,12 @@ class Kopru:
             await ws.send(veri)
         except ConnectionClosed:
             self.istemciler.discard(ws)
+
+    def baslik_ver(self, o, metin: str):
+        """Oturumun başlığı ilk mesajdan (Asistan'da ilk söylenenden) gelir."""
+        o.baslik = kisa(metin.strip().splitlines()[0], 60)
+        self.oturumlari_kaydet()
+        self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": o.ozet()})
 
     def kota_ver(self, ajan, pencereler):
         for w in pencereler:
@@ -2696,9 +2729,9 @@ class Kopru:
             if not metin and not ekler:
                 raise ValueError("boş mesaj")
             if o.baslik == o.cwd.name and metin and not self.gecmis(o.id, 1):
-                o.baslik = kisa(metin.splitlines()[0], 60)
-                self.oturumlari_kaydet()
-                self.yayinla({"ev": "oturum", "oturum": o.id, "ozet": o.ozet()})
+                self.baslik_ver(o, metin)
+            elif getattr(o, "asistan", False) and o.baslik == "Asistan" and metin:
+                self.baslik_ver(o, metin)
             o.yay({"ev": "kullanici", "metin": metin, "ekler": ekler})
             await o.gonder(metin, ekler)
             return {}
@@ -3048,7 +3081,89 @@ async def ana(port: int, token: str):
         t.kapat()
 
 
+def kabuk_mcp(cihaz: str, ev: Path = EV):
+    """Seçili cihaza SSH ile kabuk komutu gönderen küçük MCP sunucusu (stdio).
+    Asistan'ın Codex'i ve Claude'u bunu `--kabuk-mcp AD` ile başlatır."""
+    try:
+        # Codex MCP süreçlerine köprünün ortam değişkenlerini geçirmez; klasör argümanla gelir.
+        s = {x["ad"]: x for x in json.loads((ev / "sunucular.json").read_text())}.get(cihaz)
+    except (OSError, ValueError):
+        s = None
+    arac = {
+        "name": "komut",
+        "description": (f"{cihaz} makinesinde (SSH) bir kabuk komutu çalıştırır ve çıktısını, hata çıktısını, "
+                        "çıkış kodunu döndürür. bash -lc ile, kullanıcının hesabıyla çalışır. Etkileşimli "
+                        "komutlar çalışmaz. Bir şey değiştiren komutlardan önce kullanıcıdan onay al."),
+        "inputSchema": {"type": "object", "properties": {
+            "komut": {"type": "string", "description": "Çalıştırılacak kabuk komutu."},
+            "klasor": {"type": "string", "description": "Çalışma klasörü (varsayılan ~)."},
+            "sure": {"type": "integer", "description": "Zaman aşımı, saniye (varsayılan 120, en çok 580)."}},
+            "required": ["komut"]},
+    }
+
+    def yaz(o):
+        sys.stdout.write(json.dumps(o, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+    def calis(a: dict) -> tuple[str, bool]:
+        if not s:
+            return f"{cihaz} kayıtlı sunucular arasında yok.", True
+        komut = str(a.get("komut") or "").strip()
+        if not komut:
+            return "komut boş", True
+        sure = max(5, min(int(a.get("sure") or 120), 580))
+        klasor = str(a.get("klasor") or "~")
+        ic = f"cd {_uzak_hedef(klasor)} && {komut}"
+        try:
+            r = subprocess.run(ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", ic])], capture_output=True,
+                               stdin=subprocess.DEVNULL, timeout=sure)
+        except subprocess.TimeoutExpired:
+            return f"zaman aşımı ({sure} sn); komut uzakta sürüyor olabilir.", True
+        except FileNotFoundError:
+            return "ssh bulunamadı", True
+        out, err = r.stdout.decode(errors="replace"), r.stderr.decode(errors="replace")
+        parca = [f"çıkış kodu: {r.returncode}"]
+        if out.strip():
+            parca.append("--- çıktı ---\n" + kisa(out.rstrip(), 30000))
+        if err.strip():
+            parca.append("--- hata çıktısı ---\n" + kisa(err.rstrip(), 8000))
+        if r.returncode == 255 and "Permission denied" in err:
+            parca.append("SSH anahtarı reddedildi: Atölye Ayarlar > Sunucular > Anahtarı gönder.")
+        return "\n".join(parca), r.returncode != 0
+
+    for satir in sys.stdin:
+        try:
+            m = json.loads(satir)
+        except ValueError:
+            continue
+        no, yontem = m.get("id"), m.get("method")
+        if no is None:
+            continue  # bildirim
+        if yontem == "initialize":
+            yaz({"jsonrpc": "2.0", "id": no, "result": {
+                "protocolVersion": (m.get("params") or {}).get("protocolVersion") or "2025-06-18",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "atolye-kabuk", "version": SURUM}}})
+        elif yontem == "tools/list":
+            yaz({"jsonrpc": "2.0", "id": no, "result": {"tools": [arac]}})
+        elif yontem == "tools/call":
+            prm = m.get("params") or {}
+            if prm.get("name") != "komut":
+                yaz({"jsonrpc": "2.0", "id": no, "error": {"code": -32602, "message": "bilinmeyen araç"}})
+                continue
+            metin, hata = calis(prm.get("arguments") or {})
+            yaz({"jsonrpc": "2.0", "id": no, "result": {
+                "content": [{"type": "text", "text": metin}], "isError": hata}})
+        elif yontem == "ping":
+            yaz({"jsonrpc": "2.0", "id": no, "result": {}})
+        else:
+            yaz({"jsonrpc": "2.0", "id": no, "error": {"code": -32601, "message": "desteklenmiyor"}})
+
+
 def main():
+    if len(sys.argv) in (3, 4) and sys.argv[1] == "--kabuk-mcp":
+        kabuk_mcp(sys.argv[2], Path(sys.argv[3]) if len(sys.argv) == 4 else EV)
+        return
     ap = argparse.ArgumentParser(description="Atölye köprüsü")
     ap.add_argument("--port", type=int, default=int(os.environ.get("ATOLYE_PORT", 8765)))
     ap.add_argument("--token", help="uygulamanın verdiği erişim anahtarını kaydet")
