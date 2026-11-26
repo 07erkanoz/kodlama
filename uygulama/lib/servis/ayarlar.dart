@@ -108,6 +108,14 @@ class Ayarlar {
   String get sesModeli => _p.getString('sesModeli') ?? '';
   set sesModeli(String v) => _p.setString('sesModeli', v);
 
+  /// Son otomatik güncelleme denetimi (ms, epoch); 0: hiç.
+  int get sonGuncellemeDenetimi => _p.getInt('sonGuncellemeDenetimi') ?? 0;
+  set sonGuncellemeDenetimi(int v) => _p.setInt('sonGuncellemeDenetimi', v);
+
+  /// Açılışta GitHub'da yeni sürüm aransın mı.
+  bool get guncellemeDenetle => _p.getBool('guncellemeDenetle') ?? true;
+  set guncellemeDenetle(bool v) => _p.setBool('guncellemeDenetle', v);
+
   bool get kurulumBitti => _p.getBool('kurulumBitti') ?? false;
   set kurulumBitti(bool v) => _p.setBool('kurulumBitti', v);
 

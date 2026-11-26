@@ -157,6 +157,12 @@ class MainActivity : FlutterActivity() {
                     }
                     "izinVar" -> result.success(izinVar())
                     "abiler" -> result.success(Build.SUPPORTED_ABIS.toList())
+                    "surum" -> {
+                        val bilgi = packageManager.getPackageInfo(packageName, 0)
+                        val kod = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) bilgi.longVersionCode
+                                  else @Suppress("DEPRECATION") bilgi.versionCode.toLong()
+                        result.success(mapOf("kod" to kod, "ad" to (bilgi.versionName ?: "")))
+                    }
                     "termuxAyarlari" -> {
                         try {
                             startActivity(

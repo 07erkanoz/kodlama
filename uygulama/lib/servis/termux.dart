@@ -59,6 +59,14 @@ abstract final class Termux {
     return ((await _cagir<List>('abiler')) ?? const []).cast<String>();
   }
 
+  /// Kurulu Atölye'nin sürüm kodu (versionCode) ve adı; Android dışında null.
+  static Future<({int kod, String ad})?> surum() async {
+    if (!destekleniyor) return null;
+    final m = await _cagir<Map>('surum');
+    if (m == null) return null;
+    return (kod: (m['kod'] as num).toInt(), ad: m['ad'] as String? ?? '');
+  }
+
   /// Atölye'nin başka uygulama kurdurma izni (Bilinmeyen uygulamalar) var mı.
   static Future<bool> kurulumIzniVar() async {
     if (!destekleniyor) return false;

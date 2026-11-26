@@ -3,6 +3,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../../model/sesli_konusma.dart';
+import '../tema.dart';
 import 'figurler.dart';
 import 'hareket.dart';
 
@@ -83,11 +84,21 @@ class _YankiFiguruState extends State<YankiFiguru>
 }
 
 /// Sesli konuşmanın tam ekranı: ortada figür, altında son satırlar.
+/// [ek] figürün altında çizilir (bekleyen onaylar); [ekDinle] değişince
+/// yeniden çizilir. Ek varken figür küçülür, ek hep görünür kalır.
 class YankiEkrani extends StatefulWidget {
-  const YankiEkrani({super.key, required this.ses, required this.gorunum});
+  const YankiEkrani({
+    super.key,
+    required this.ses,
+    required this.gorunum,
+    this.ek,
+    this.ekDinle,
+  });
 
   final SesliKonusma ses;
   final String gorunum;
+  final WidgetBuilder? ek;
+  final Listenable? ekDinle;
 
   @override
   State<YankiEkrani> createState() => _YankiEkraniState();
@@ -118,7 +129,7 @@ class _YankiEkraniState extends State<YankiEkrani> {
       backgroundColor: yankiZemini,
       body: SafeArea(
         child: ListenableBuilder(
-          listenable: ses,
+          listenable: Listenable.merge([ses, ?widget.ekDinle]),
           builder: (context, _) {
             if (!ses.acik && ses.hata == null) {
               // Konuşma bitti: tam ekran kendiliğinden kapansın.
@@ -155,6 +166,20 @@ class _YankiEkraniState extends State<YankiEkrani> {
                     ),
                   ),
                 ),
+                if (widget.ek != null)
+                  // Figürün koyu zemininde açık temalı kart sırıtmasın.
+                  Theme(
+                    data: Tema.koyu(),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 640),
+                          child: Builder(builder: widget.ek!),
+                        ),
+                      ),
+                    ),
+                  ),
                 Text(
                   durum,
                   style: const TextStyle(

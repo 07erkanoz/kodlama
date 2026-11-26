@@ -5,6 +5,7 @@ import '../arayuz/ortak.dart';
 import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
 import '../servis/bildirim.dart';
+import '../servis/guncelleme.dart';
 import '../servis/termux.dart';
 import 'giris_penceresi.dart';
 import 'kurulum_paneli.dart';
@@ -300,6 +301,7 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                       ),
                     ),
                   ),
+                  if (Termux.destekleniyor) _GuncellemeBolumu(calisma: c),
                   _kopruBolumu(t),
                 ],
               ),
@@ -1222,5 +1224,190 @@ class _ArkaPlanBolumuState extends State<_ArkaPlanBolumu>
         ],
       ),
     );
+  }
+}
+
+/// Ayarlar › Uygulama: kurulu sürüm, GitHub'da yeni sürüm denetimi ve
+/// kurulumu (indirilir, SHA-256 ile doğrulanır, Android'in yükleme ekranı açılır).
+class _GuncellemeBolumu extends StatefulWidget {
+  const _GuncellemeBolumu({required this.calisma});
+  final Calisma calisma;
+
+  @override
+  State<_GuncellemeBolumu> createState() => _GuncellemeBolumuState();
+}
+
+class _GuncellemeBolumuState extends State<_GuncellemeBolumu> {
+  ({int kod, String ad})? _kurulu;
+  bool _denetleniyor = false;
+  bool _denetlendi = false;
+  bool _kuruluyor = false;
+  double? _oran;
+  String? _hata;
+
+  @override
+  void initState() {
+    super.initState();
+    Termux.surum().then((v) {
+      if (mounted) setState(() => _kurulu = v);
+    });
+  }
+
+  Future<void> _denetle() async {
+    setState(() {
+      _denetleniyor = true;
+      _hata = null;
+    });
+    try {
+      await guncellemeDenetle();
+      widget.calisma.ayarlar.sonGuncellemeDenetimi =
+          DateTime.now().millisecondsSinceEpoch;
+      _denetlendi = true;
+    } catch (e) {
+      _hata = 'Denetlenemedi: $e';
+    } finally {
+      if (mounted) setState(() => _denetleniyor = false);
+    }
+  }
+
+  Future<void> _kur(Surum s) async {
+    setState(() {
+      _kuruluyor = true;
+      _oran = null;
+      _hata = null;
+    });
+    try {
+      final tamam = await guncellemeyiKur(
+        s,
+        ilerleme: (o) {
+          if (mounted) setState(() => _oran = o);
+        },
+      );
+      if (!tamam) {
+        _hata =
+            'Önce Atölye\'ye "bilinmeyen uygulamaları yükle" izni ver, '
+            'sonra yeniden dene.';
+      }
+    } catch (e) {
+      _hata = 'Kurulamadı: $e';
+    } finally {
+      if (mounted) setState(() => _kuruluyor = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    final a = widget.calisma.ayarlar;
+    final k = _kurulu;
+    return _Bolum(
+      simge: Icons.system_update_alt_rounded,
+      baslik: 'Uygulama güncellemesi',
+      aciklama:
+          'Yeni sürümler GitHub\'daki $guncellemeDeposu deposundan gelir.',
+      child: ValueListenableBuilder<Surum?>(
+        valueListenable: yeniSurum,
+        builder: (context, yeni, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              k == null
+                  ? 'Kurulu sürüm okunuyor…'
+                  : 'Kurulu: ${k.ad} (yapı ${k.kod})',
+              style: t.textTheme.bodyMedium,
+            ),
+            if (yeni != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: r.primaryContainer.withValues(alpha: .4),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Yeni sürüm: ${yeni.ad}',
+                      style: t.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      [
+                        'yapı ${yeni.kod}',
+                        if (yeni.tarih != null) _tarih(yeni.tarih!.toLocal()),
+                        if (yeni.boyut > 0)
+                          '${(yeni.boyut / 1e6).toStringAsFixed(0)} MB',
+                        if (yeni.sha256 == null) 'özet yok, doğrulanmayacak',
+                      ].join(' · '),
+                      style: t.textTheme.bodySmall?.copyWith(
+                        color: r.onSurfaceVariant,
+                      ),
+                    ),
+                    if (_kuruluyor) ...[
+                      const SizedBox(height: 10),
+                      LinearProgressIndicator(value: _oran),
+                    ],
+                  ],
+                ),
+              ),
+            ] else if (_denetlendi) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Güncelsin.',
+                style: t.textTheme.bodySmall?.copyWith(
+                  color: r.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (_hata != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                _hata!,
+                style: t.textTheme.bodySmall?.copyWith(color: r.error),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (yeni != null)
+                  FilledButton.icon(
+                    onPressed: _kuruluyor ? null : () => _kur(yeni),
+                    icon: const Icon(Icons.download_rounded, size: 18),
+                    label: Text(_kuruluyor ? 'İndiriliyor…' : 'İndir ve kur'),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: _denetleniyor || _kuruluyor ? null : _denetle,
+                  icon: _denetleniyor
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Güncellemeleri denetle'),
+                ),
+              ],
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Açılışta denetle'),
+              subtitle: const Text('Günde en çok bir kez'),
+              value: a.guncellemeDenetle,
+              onChanged: (v) => setState(() => a.guncellemeDenetle = v),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _tarih(DateTime d) {
+    String iki(int n) => n.toString().padLeft(2, '0');
+    return '${iki(d.day)}.${iki(d.month)}.${d.year} ${iki(d.hour)}:${iki(d.minute)}';
   }
 }

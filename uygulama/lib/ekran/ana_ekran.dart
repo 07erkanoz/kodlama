@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../arayuz/ortak.dart';
 import '../arayuz/yerlesim.dart';
 import '../model/calisma.dart';
+import '../servis/guncelleme.dart';
+import '../servis/termux.dart';
 import 'canli_onizleme.dart';
 import 'baslangic_ekrani.dart';
 import 'dosya_paneli.dart';
@@ -69,6 +71,59 @@ class _AnaEkranState extends State<AnaEkran> {
           duration: Duration(seconds: 2),
         ),
       );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _guncellemeyeBak());
+  }
+
+  /// Açılışta (günde en çok bir kez) GitHub'da yeni sürüm var mı; varsa söyle.
+  Future<void> _guncellemeyeBak() async {
+    final a = calisma.ayarlar;
+    if (!Termux.destekleniyor || !a.guncellemeDenetle) return;
+    final simdi = DateTime.now().millisecondsSinceEpoch;
+    if (simdi - a.sonGuncellemeDenetimi <
+        const Duration(hours: 20).inMilliseconds) {
+      return;
+    }
+    try {
+      final yeni = await guncellemeDenetle();
+      a.sonGuncellemeDenetimi = simdi;
+      if (yeni == null || !mounted) return;
+      final m = ScaffoldMessenger.of(context);
+      m.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text('Atölye\'nin yeni sürümü var: ${yeni.ad}'),
+          action: SnackBarAction(
+            label: 'Kur',
+            onPressed: () async {
+              m.showSnackBar(
+                const SnackBar(content: Text('Güncelleme indiriliyor…')),
+              );
+              try {
+                if (!await guncellemeyiKur(yeni)) {
+                  m.showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Önce "bilinmeyen uygulamaları yükle" iznini ver; '
+                        'sonra Ayarlar › Uygulama güncellemesi\'nden kur.',
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                m.showSnackBar(SnackBar(content: Text('Kurulamadı: $e')));
+              }
+            },
+          ),
+        ),
+      );
+    } catch (_) {
+      // Ağ yoksa sessiz geç; Ayarlar'dan elle denetlenebilir.
+    }
   }
 
   @override

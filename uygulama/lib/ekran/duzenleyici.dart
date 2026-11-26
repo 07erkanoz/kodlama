@@ -1,63 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:re_editor/re_editor.dart';
-import 'package:re_highlight/languages/bash.dart';
-import 'package:re_highlight/languages/c.dart';
-import 'package:re_highlight/languages/cpp.dart';
-import 'package:re_highlight/languages/css.dart';
-import 'package:re_highlight/languages/dart.dart';
-import 'package:re_highlight/languages/dockerfile.dart';
-import 'package:re_highlight/languages/go.dart';
-import 'package:re_highlight/languages/gradle.dart';
-import 'package:re_highlight/languages/ini.dart';
-import 'package:re_highlight/languages/java.dart';
-import 'package:re_highlight/languages/javascript.dart';
-import 'package:re_highlight/languages/json.dart';
-import 'package:re_highlight/languages/kotlin.dart';
-import 'package:re_highlight/languages/markdown.dart';
-import 'package:re_highlight/languages/php.dart';
-import 'package:re_highlight/languages/python.dart';
-import 'package:re_highlight/languages/ruby.dart';
-import 'package:re_highlight/languages/rust.dart';
-import 'package:re_highlight/languages/sql.dart';
-import 'package:re_highlight/languages/swift.dart';
-import 'package:re_highlight/languages/typescript.dart';
-import 'package:re_highlight/languages/xml.dart';
-import 'package:re_highlight/languages/yaml.dart';
 import 'package:re_highlight/re_highlight.dart';
 import 'package:re_highlight/styles/atom-one-dark.dart';
 import 'package:re_highlight/styles/atom-one-light.dart';
 
+import '../arayuz/kod_blogu.dart';
 import '../model/calisma.dart';
 
 /// Uzantıya göre sözdizimi renklendirme kuralı (yoksa düz metin).
 Mode? _dil(String yol) {
   final ad = yol.split('/').last.toLowerCase();
-  if (ad == 'dockerfile') return langDockerfile;
-  return switch (ad.split('.').last) {
-    'dart' => langDart,
-    'py' => langPython,
-    'js' || 'mjs' || 'cjs' || 'jsx' => langJavascript,
-    'ts' || 'tsx' => langTypescript,
-    'json' || 'arb' => langJson,
-    'yaml' || 'yml' => langYaml,
-    'md' || 'markdown' => langMarkdown,
-    'html' || 'htm' || 'xml' || 'svg' => langXml,
-    'css' || 'scss' => langCss,
-    'sh' || 'bash' || 'zsh' => langBash,
-    'kt' || 'kts' => langKotlin,
-    'java' => langJava,
-    'go' => langGo,
-    'rs' => langRust,
-    'c' || 'h' => langC,
-    'cpp' || 'cc' || 'hpp' => langCpp,
-    'toml' || 'ini' || 'cfg' || 'properties' => langIni,
-    'sql' => langSql,
-    'gradle' => langGradle,
-    'php' => langPhp,
-    'rb' => langRuby,
-    'swift' => langSwift,
-    _ => null,
-  };
+  if (ad == 'dockerfile') return kodDili(ad)?.$2;
+  // Uzantısız dosya (Makefile, LICENSE): düz metin
+  if (!ad.contains('.')) return null;
+  return kodDili(ad.split('.').last)?.$2;
 }
 
 /// Bir metin dosyasını düzenler ve köprü üzerinden kaydeder. Dosya okunduktan

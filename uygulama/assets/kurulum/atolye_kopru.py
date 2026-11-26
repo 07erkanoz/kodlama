@@ -866,6 +866,23 @@ def codex_kota_pencereleri(lim: dict) -> list[dict]:
     return pencereler
 
 
+def izin_ozeti(izinler: dict) -> str:
+    """Codex'in istediği ek izinler (item/permissions/requestApproval), okunur biçimde."""
+    parca = []
+    if (izinler.get("network") or {}).get("enabled"):
+        parca.append("ağ erişimi")
+    fs = izinler.get("fileSystem") or {}
+    erisim = {"read": "okuma", "write": "yazma", "deny": "engel"}
+    for g in fs.get("entries") or []:
+        y = g.get("path") or {}
+        hedef = y.get("path") or y.get("pattern") or (y.get("value") or {}).get("kind") or "?"
+        parca.append(f"{erisim.get(g.get('access'), g.get('access'))}: {hedef}")
+    for tur in ("read", "write"):
+        for y in fs.get(tur) or []:
+            parca.append(f"{erisim[tur]}: {y}")
+    return ", ".join(parca) or "ek izin"
+
+
 def ssh_hedef(s: dict) -> list[str]:
     return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30",
@@ -1389,12 +1406,14 @@ CLAUDE_ASISTAN_REHBERI = (
 
 KABUK_NOTU = (
     "{cihaz} makinesinde Linux komutu çalıştırmak için cihaz_kabuk aracının komut işlevi var "
-    "(SSH, kullanıcının hesabıyla, bash -lc). MCP araçlarında olmayan işleri onunla yap. Okuma "
-    "komutlarını (durum, log, disk, süreç, dosya okuma) çekinmeden çalıştır. Paket kurma/kaldırma, "
-    "dosya silme ya da üzerine yazma, servis başlatma/durdurma, yeniden başlatma, yapılandırma ve "
-    "güvenlik duvarı değişikliği gibi bir şey değiştiren komutlardan önce ne yapacağını ve neden "
-    "yapacağını kullanıcıya söyle, onayını al. sudo parola ister; önce sudo -n dene, olmazsa "
-    "kullanıcıya söyle. Etkileşimli komutlar (vim, top, less) çalışmaz; tek seferlik biçimlerini kullan."
+    "(SSH, kullanıcının hesabıyla, bash -lc). Makinede bir şey bilmen ya da yapman gerektiğinde "
+    "sorup beklemeden bu araçla kendin bak ve yap; \"erişimim yok\" deme, aracı çalıştır. Okuma "
+    "komutlarını (durum, log, disk, süreç, dosya okuma) çekinmeden çalıştır. Kullanıcının istediği "
+    "değişikliği (paket kurma, servis yeniden başlatma, dosya düzenleme) doğrudan yap: araç çağrısı "
+    "ekranda kullanıcıya ayrıca onaylatılır, yazıyla bir daha onay isteme. Kullanıcının istemediği "
+    "yıkıcı bir adım (silme, yeniden başlatma, güvenlik duvarı) gerekirse önce sor. Araç hata verirse "
+    "çıktıyı oku, düzeltip yeniden dene. sudo parola ister; önce sudo -n dene, olmazsa kullanıcıya "
+    "söyle. Etkileşimli komutlar (vim, top, less) çalışmaz; tek seferlik biçimlerini kullan."
 )
 
 # Seçilen cihazda aranan MCP programları: ad → (aranacak komutlar, argümanlar).
@@ -1484,7 +1503,7 @@ class ClaudeYardimci(ClaudeOturum):
 
     def _args(self):
         a = super()._args()
-        tanim = cihaz_mcp_tanimlari(self.ana)
+        tanim = {} if self.sunucu else cihaz_mcp_tanimlari(self.ana)
         if tanim:
             a += ["--mcp-config", json.dumps({"mcpServers": {
                 ad: {"type": "stdio", **t} for ad, t in tanim.items()}}, ensure_ascii=False)]
@@ -1585,7 +1604,8 @@ class CodexOturum(Oturum):
         if self.surec:
             return
         args = [self.komut("codex"), "app-server"]
-        for ad, t in cihaz_mcp_tanimlari(self).items():
+        # Uzak oturumda Codex o makinede çalışır: bu cihazın kabuk MCP'si orada yoktur.
+        for ad, t in ({} if self.sunucu else cihaz_mcp_tanimlari(self)).items():
             args += ["-c", f"mcp_servers.{ad}={{command={_toml(t['command'])}, args={_toml(t['args'])}, "
                            f"startup_timeout_sec=30, tool_timeout_sec=600}}"]
         await self._baslat(args)
@@ -1855,6 +1875,14 @@ class CodexOturum(Oturum):
         await self.yaz({"jsonrpc": "2.0", "id": rid, "result": {
             "success": basari, "contentItems": [{"type": "inputText", "text": kisa(metin, 60000)}]}})
 
+    def _hep_mi(self, anahtar: str) -> bool:
+        """Kullanıcı bu türü "Bu oturumda hep" ile açtıysa sormadan onayla."""
+        istek = self.onaylar.get(anahtar) or {}
+        if not istek.get("_hep") or istek["_hep"] not in self.hep_izin:
+            return False
+        asyncio.create_task(self.onayla(anahtar, "hep"))
+        return True
+
     async def onayla(self, rid, karar):
         if self.yardimci and rid in self.yardimci.onaylar:
             await self.yardimci.onayla(rid, karar)
@@ -1862,8 +1890,19 @@ class CodexOturum(Oturum):
         istek = self.onaylar.get(rid)
         if not istek:
             return
+        if karar == "hep" and istek.get("_hep"):
+            self.hep_izin.add(istek["_hep"])
+        if istek.get("_tur") == "izinler":
+            # Codex'in istediği ek izinler (ağ, klasör dışına yazma); "hep" bu oturum boyunca
+            sonuc = ({"permissions": istek.get("_izinler") or {}, "scope": "session" if karar == "hep" else "turn"}
+                     if karar in ("izin", "hep") else {"permissions": {}})
+            await self.yaz({"jsonrpc": "2.0", "id": istek["_id"], "result": sonuc})
+            self.onay_kapandi(rid)
+            return
         if istek.get("_tur") == "mcp":
             sonuc = {"action": "accept", "content": {}} if karar in ("izin", "hep") else {"action": "decline"}
+            if karar == "hep" and "session" in (istek.get("_kalici") or []):
+                sonuc["_meta"] = {"persist": "session"}  # Codex de bu oturumda bir daha sormasın
             await self.yaz({"jsonrpc": "2.0", "id": istek["_id"], "result": sonuc})
             self.onay_kapandi(rid)
             return
@@ -1908,16 +1947,23 @@ class CodexOturum(Oturum):
                     yollar = [c.get("path") for c in oge.get("changes") or []]
                     ozet = ", ".join(goreli(y, self.cwd) for y in yollar if y)
                     girdi = {"changes": oge.get("changes")}
-                self.onaylar[anahtar] = {"arac": arac, "_id": rid}
-                self.yay({"ev": "onay", "rid": anahtar, "arac": arac, "ozet": kisa(ozet, 300),
-                          "girdi": kisa(girdi, 60000), "neden": prm.get("reason") or ""})
+                self.onaylar[anahtar] = {"arac": arac, "_id": rid, "_hep": arac}
+                if not self._hep_mi(anahtar):
+                    self.yay({"ev": "onay", "rid": anahtar, "arac": arac, "ozet": kisa(ozet, 300),
+                              "girdi": kisa(girdi, 60000), "neden": prm.get("reason") or ""})
             elif yontem == "item/tool/call":
                 asyncio.create_task(self._arac_cagrisi(rid, prm))
             elif yontem == "mcpServer/elicitation/request" and prm.get("mode") in ("form", "openai/form", "openaiForm"):
                 # MCP aracı onayı (ör. LifeOS'un değiştiren araçları) ya da sunucunun sorusu
                 anahtar = f"cx{rid}"
-                self.onaylar[anahtar] = {"arac": f"MCP: {prm.get('serverName') or '?'}", "_id": rid, "_tur": "mcp"}
                 meta = prm.get("_meta") or {}
+                # "Bu oturumda hep" o sunucunun o aracına verilir (sorusuna değil)
+                hep = (f"MCP:{prm.get('serverName')}:{meta.get('tool_name')}"
+                       if meta.get("codex_approval_kind") == "mcp_tool_call" else None)
+                self.onaylar[anahtar] = {"arac": f"MCP: {prm.get('serverName') or '?'}", "_id": rid, "_tur": "mcp",
+                                         "_hep": hep, "_kalici": meta.get("persist") or []}
+                if self._hep_mi(anahtar):
+                    return
                 ozet = prm.get("message") or ""
                 if meta.get("codex_approval_kind") == "mcp_tool_call":
                     # "Allow the X MCP server to run tool Y?" yerine ne yapılacağı görünsün.
@@ -1935,11 +1981,26 @@ class CodexOturum(Oturum):
                 secenek = [o.get("label", "") for o in q.get("options") or []]
                 anahtar = f"cx{rid}"
                 self.onaylar[anahtar] = {"arac": q.get("header") or "Soru", "_id": rid, "_tur": "soru",
-                                         "_soru": q.get("id"), "_secenek": secenek}
+                                         "_soru": q.get("id"), "_secenek": secenek,
+                                         "_hep": f"Soru:{q.get('header') or ''}:{q.get('question') or ''}"}
+                if self._hep_mi(anahtar):
+                    return
                 self.yay({"ev": "onay", "rid": anahtar, "arac": q.get("header") or "Onay",
                           "ozet": kisa(q.get("question") or "", 300),
                           "girdi": kisa({"seçenekler": secenek}, 4000), "neden": ""})
+            elif yontem == "item/permissions/requestApproval":
+                # Kum içindeki Codex ağ ya da çalışma klasörü dışına erişim istiyor (ör. ssh, ~/.ssh).
+                izinler = prm.get("permissions") or {}
+                anahtar = f"cx{rid}"
+                self.onaylar[anahtar] = {"arac": "Ek izin", "_id": rid, "_tur": "izinler", "_izinler": izinler,
+                                         "_hep": "Ek izin:" + json.dumps(izinler, sort_keys=True)}
+                if self._hep_mi(anahtar):
+                    return
+                self.yay({"ev": "onay", "rid": anahtar, "arac": "Ek izin", "ozet": kisa(izin_ozeti(izinler), 300),
+                          "girdi": kisa(izinler, 8000), "neden": prm.get("reason") or ""})
             else:
+                # Sessizce reddetmek Codex'i "yapamıyorum"a düşürür: en azından görünsün.
+                self.yay({"ev": "uyari", "metin": f"Codex'in bir isteği desteklenmiyor ve reddedildi: {yontem}"})
                 await self.yaz({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "desteklenmiyor"}})
             return
 
@@ -3093,7 +3154,7 @@ def kabuk_mcp(cihaz: str, ev: Path = EV):
         "name": "komut",
         "description": (f"{cihaz} makinesinde (SSH) bir kabuk komutu çalıştırır ve çıktısını, hata çıktısını, "
                         "çıkış kodunu döndürür. bash -lc ile, kullanıcının hesabıyla çalışır. Etkileşimli "
-                        "komutlar çalışmaz. Bir şey değiştiren komutlardan önce kullanıcıdan onay al."),
+                        "komutlar çalışmaz. Her çağrı kullanıcıya ekranda onaylatılabilir."),
         "inputSchema": {"type": "object", "properties": {
             "komut": {"type": "string", "description": "Çalıştırılacak kabuk komutu."},
             "klasor": {"type": "string", "description": "Çalışma klasörü (varsayılan ~)."},

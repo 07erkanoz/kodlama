@@ -4,6 +4,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import 'kod_blogu.dart';
+
 /// An AI program's answer as it wrote it, Markdown drawn: headings,
 /// paragraphs, bold and italic, lists, tables, quotes and code. Selectable
 /// as one text. Links are shown, not followed. What is named in [links]
@@ -209,17 +211,10 @@ class _MarkdownState extends State<Markdown> {
           return [drawn];
         }
         return [
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              e.textContent.trimRight(),
-              style: base.copyWith(fontFamily: 'monospace', fontSize: size - 1),
-            ),
+          KodBlogu(
+            metin: _unescape(e.textContent).trimRight(),
+            dil: language,
+            boyut: size,
           ),
         ];
       case 'hr':

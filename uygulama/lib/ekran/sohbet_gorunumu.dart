@@ -62,8 +62,11 @@ class _DosyaBlok extends _Blok {
 }
 
 class _BittiBlok extends _Blok {
-  _BittiBlok(this.oge);
+  _BittiBlok(this.oge, this.yanit);
   final BittiOge oge;
+
+  /// Bu turda ajanın yazdığı metinler, Markdown olarak (kopyalamak için).
+  final String yanit;
 }
 
 class _UyariBlok extends _Blok {
@@ -76,8 +79,11 @@ List<_Blok> _bloklar(List<Oge> ogeler) {
   final out = <_Blok>[];
   var turBasi = true;
   String? kaynak;
+  final turMetni = <String>[];
   for (final o in ogeler) {
     // Yankı'da aynı turda Codex ve Claude konuşabilir: ajan değişince başlık
+    // Bekleyen onay akışta değil, yazma kutusunun üstünde durur.
+    if (o is OnayOge && !o.kapandi) continue;
     if (o is! KullaniciOge &&
         o is! DosyaOge &&
         o is! BittiOge &&
@@ -90,8 +96,10 @@ List<_Blok> _bloklar(List<Oge> ogeler) {
       case KullaniciOge():
         out.add(_KullaniciBlok(o));
         turBasi = true;
+        turMetni.clear();
       case MetinOge():
         out.add(_MetinBlok(o));
+        if (o.metin.trim().isNotEmpty) turMetni.add(o.metin.trim());
       case DusunceOge():
         out.add(_DusunceBlok(o));
       case AracOge():
@@ -110,7 +118,8 @@ List<_Blok> _bloklar(List<Oge> ogeler) {
           out.add(_DosyaBlok([o]));
         }
       case BittiOge():
-        out.add(_BittiBlok(o));
+        out.add(_BittiBlok(o, turMetni.join('\n\n')));
+        turMetni.clear();
       case UyariOge():
         out.add(_UyariBlok(o.metin, bilgi: o.bilgi));
     }
@@ -259,16 +268,35 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         model: a.sesModeli.isEmpty ? null : a.sesModeli,
       );
       // Yankı görünümünde konuşma doğrudan tam ekran açılır.
-      if (a.sesGorunumu != 'sade' && a.sesTamEkran) {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => YankiEkrani(ses: ses, gorunum: a.sesGorunumu),
-          ),
-        );
-      }
+      if (a.sesGorunumu != 'sade' && a.sesTamEkran) _yankiEkraniAc();
     }
   }
+
+  List<OnayOge> _bekleyenOnaylar() => [
+    for (final o in s.ogeler)
+      if (o is OnayOge && !o.kapandi) o,
+  ];
+
+  /// Sesli konuşmanın tam ekranı; bekleyen onaylar orada da verilir.
+  void _yankiEkraniAc() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => YankiEkrani(
+        ses: s.ses,
+        gorunum: widget.calisma.ayarlar.sesGorunumu,
+        ekDinle: s,
+        ek: (context) {
+          final bekleyen = _bekleyenOnaylar();
+          if (bekleyen.isEmpty) return const SizedBox.shrink();
+          return BekleyenOnaylar(
+            onaylar: bekleyen,
+            ajan: s.ajan,
+            karar: s.onayla,
+          );
+        },
+      ),
+    ),
+  );
 
   Future<void> _gonder() async {
     final metin = _yazi.text.trim();
@@ -392,6 +420,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
           modSec: s.modDegistir,
         );
         final say = bloklar.length + (s.calisiyor ? 1 : 0);
+        final bekleyen = _bekleyenOnaylar();
         return Column(
           children: [
             Expanded(
@@ -438,6 +467,17 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                       },
                     ),
             ),
+            if (bekleyen.isNotEmpty)
+              _sar(
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: BekleyenOnaylar(
+                    onaylar: bekleyen,
+                    ajan: s.ajan,
+                    karar: s.onayla,
+                  ),
+                ),
+              ),
             if (_sesVar)
               ListenableBuilder(
                 listenable: s.ses,
@@ -448,6 +488,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                           child: _SesPaneli(
                             ses: s.ses,
                             gorunum: widget.calisma.ayarlar.sesGorunumu,
+                            tamEkran: _yankiEkraniAc,
                           ),
                         ),
                       )
@@ -602,11 +643,14 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     _EtkinlikBlok(:final araclar) => _Etkinlik(araclar: araclar),
     _OnayBlok(:final oge) => _OnayKarti(
       oge: oge,
-      ajan: s.ajan,
+      ajan: oge.kaynak ?? s.ajan,
       karar: (k) => s.onayla(oge, k),
     ),
     _DosyaBlok(:final dosyalar) => _Dosyalar(dosyalar: dosyalar, ac: _dosyaAc),
-    _BittiBlok(:final oge) => _BittiSatiri(oge: oge),
+    _BittiBlok(:final oge, :final yanit) => _BittiSatiri(
+      oge: oge,
+      yanit: yanit,
+    ),
     _UyariBlok(:final metin, :final bilgi) => _UyariSatiri(
       metin: metin,
       bilgi: bilgi,
@@ -1161,6 +1205,7 @@ String _girdiMetni(String girdi) {
 
 class _OnayKarti extends StatelessWidget {
   const _OnayKarti({
+    super.key,
     required this.oge,
     required this.ajan,
     required this.karar,
@@ -1309,6 +1354,59 @@ class _OnayKarti extends StatelessWidget {
   }
 }
 
+/// Cevap bekleyen onaylar: akışın içinde yukarıda kaybolmasın diye yazma
+/// kutusunun (ve ses panelinin) hemen üstünde, sırayla tek tek. Uzun bir
+/// diff ekranı kaplamasın: yükseklik sınırlı, kart kendi içinde kayar.
+class BekleyenOnaylar extends StatelessWidget {
+  const BekleyenOnaylar({
+    super.key,
+    required this.onaylar,
+    required this.ajan,
+    required this.karar,
+  });
+
+  final List<OnayOge> onaylar;
+
+  /// Oturumun ajanı; öğe başka bir ajandan geliyorsa (Yankı'da Claude) o.
+  final String ajan;
+  final void Function(OnayOge oge, String karar) karar;
+
+  @override
+  Widget build(BuildContext context) {
+    final ilk = onaylar.first;
+    final t = Theme.of(context);
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .5,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onaylar.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 2),
+                child: Text(
+                  '${onaylar.length} onay bekliyor · sıradaki 1/${onaylar.length}',
+                  style: t.textTheme.labelMedium?.copyWith(
+                    color: t.colorScheme.primary,
+                  ),
+                ),
+              ),
+            _OnayKarti(
+              key: ValueKey(ilk.rid),
+              oge: ilk,
+              ajan: ilk.kaynak ?? ajan,
+              karar: (k) => karar(ilk, k),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _Dosyalar extends StatelessWidget {
   const _Dosyalar({required this.dosyalar, required this.ac});
   final List<DosyaOge> dosyalar;
@@ -1356,9 +1454,37 @@ class _Dosyalar extends StatelessWidget {
   }
 }
 
-class _BittiSatiri extends StatelessWidget {
-  const _BittiSatiri({required this.oge});
+class _BittiSatiri extends StatefulWidget {
+  const _BittiSatiri({required this.oge, required this.yanit});
   final BittiOge oge;
+  final String yanit;
+
+  @override
+  State<_BittiSatiri> createState() => _BittiSatiriState();
+}
+
+class _BittiSatiriState extends State<_BittiSatiri> {
+  bool _kopyalandi = false;
+  Timer? _sayac;
+
+  BittiOge get oge => widget.oge;
+
+  @override
+  void dispose() {
+    _sayac?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _kopyala() async {
+    await Clipboard.setData(ClipboardData(text: widget.yanit));
+    HapticFeedback.selectionClick();
+    if (!mounted) return;
+    setState(() => _kopyalandi = true);
+    _sayac?.cancel();
+    _sayac = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _kopyalandi = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1388,12 +1514,36 @@ class _BittiSatiri extends StatelessWidget {
         ),
       );
     }
-    if (oge.maliyet == null) return const SizedBox(height: 4);
+    final kopyalanir = widget.yanit.isNotEmpty;
+    if (oge.maliyet == null && !kopyalanir) return const SizedBox(height: 4);
     return Padding(
-      padding: const EdgeInsets.only(top: 2, bottom: 6),
-      child: Text(
-        '\$${oge.maliyet!.toStringAsFixed(3)}',
-        style: t.textTheme.labelSmall?.copyWith(color: r.outline),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          if (kopyalanir)
+            IconButton(
+              tooltip: _kopyalandi ? 'Kopyalandı' : 'Yanıtı kopyala',
+              visualDensity: VisualDensity.compact,
+              iconSize: 17,
+              color: r.onSurfaceVariant,
+              // dokunma alanı korunur, simge metnin hizasında durur
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: _kopyala,
+              icon: Icon(
+                _kopyalandi ? Icons.check_rounded : Icons.copy_rounded,
+              ),
+            ),
+          if (oge.maliyet != null)
+            Padding(
+              padding: EdgeInsets.only(left: kopyalanir ? 4 : 0),
+              child: Text(
+                '\$${oge.maliyet!.toStringAsFixed(3)}',
+                style: t.textTheme.labelSmall?.copyWith(color: r.outline),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1436,18 +1586,16 @@ class _UyariSatiri extends StatelessWidget {
 /// Sesli konuşma sürerken yazma kutusunun üstünde: durum, son söylenenler,
 /// sessize al ve bitir.
 class _SesPaneli extends StatelessWidget {
-  const _SesPaneli({required this.ses, required this.gorunum});
+  const _SesPaneli({
+    required this.ses,
+    required this.gorunum,
+    required this.tamEkran,
+  });
   final SesliKonusma ses;
+  final VoidCallback tamEkran;
 
   /// 'sade' ya da Yankı'nın figürlerinden biri ('yanki', 'ag', 'dalga').
   final String gorunum;
-
-  void _tamEkran(BuildContext context) => Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) => YankiEkrani(ses: ses, gorunum: gorunum),
-    ),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -1478,7 +1626,7 @@ class _SesPaneli extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: 8, bottom: 8),
               child: GestureDetector(
-                onTap: () => _tamEkran(context),
+                onTap: tamEkran,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(14),
                   child: Container(
@@ -1515,7 +1663,7 @@ class _SesPaneli extends StatelessWidget {
                   tooltip: 'Tam ekran',
                   visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.open_in_full_rounded, size: 18),
-                  onPressed: () => _tamEkran(context),
+                  onPressed: tamEkran,
                 ),
               if (ses.acik)
                 IconButton(
