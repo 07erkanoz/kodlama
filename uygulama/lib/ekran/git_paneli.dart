@@ -30,6 +30,13 @@ class _GitPaneliState extends State<GitPaneli> {
 
   Calisma get c => widget.calisma;
   String get cwd => widget.sohbet.cwd;
+  bool get _uzak => widget.sohbet.sunucu != null;
+
+  /// İsteğin hedefi: yerelde klasör, uzak oturumda sunucu ve uzak klasör.
+  Map<String, Object?> get _hedef => _uzak
+      ? {'cwd': widget.sohbet.uzakKlasor ?? '~', 'sunucu': widget.sohbet.sunucu}
+      : {'cwd': cwd};
+  bool get _gezilemez => _uzak && !c.yetenek('uzak_dosya');
 
   @override
   void initState() {
@@ -54,11 +61,11 @@ class _GitPaneliState extends State<GitPaneli> {
   }
 
   Future<void> _yenile() async {
-    if (widget.sohbet.sunucu != null) return;
+    if (_gezilemez) return;
     try {
-      final d = await c.istemci.iste('git_durum', {'cwd': cwd});
+      final d = await c.istemci.iste('git_durum', _hedef);
       Map<String, dynamic>? gh = _gh;
-      if (gh == null && d['repo'] == true) {
+      if (gh == null && d['repo'] == true && !_uzak) {
         try {
           gh = await c.istemci.iste('gh_durum');
         } catch (_) {}
@@ -96,14 +103,18 @@ class _GitPaneliState extends State<GitPaneli> {
   }
 
   Future<String?> _istek(String op, [Map<String, dynamic> p = const {}]) async {
-    final r = await c.istemci.iste(op, {'cwd': cwd, ...p});
+    final r = await c.istemci.iste(op, {..._hedef, ...p});
     final cikti = (r['cikti'] as String? ?? '').trim().split('\n').last;
     return cikti;
   }
 
   void _farkiAc(Map f) async {
     final ekran = MediaQuery.sizeOf(context);
-    final icerik = _FarkGorunumu(calisma: c, cwd: cwd, yol: f['yol'] as String);
+    final icerik = _FarkGorunumu(
+      calisma: c,
+      hedef: _hedef,
+      yol: f['yol'] as String,
+    );
     if (ekran.width >= 840) {
       await showDialog(
         context: context,
@@ -184,11 +195,11 @@ class _GitPaneliState extends State<GitPaneli> {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final r = t.colorScheme;
-    if (widget.sohbet.sunucu != null) {
+    if (_gezilemez) {
       return _Bos(
         simge: Icons.dns_outlined,
         metin:
-            'Bu oturum ${widget.sohbet.sunucu} sunucusunda. Git işlemlerini ajandan isteyebilirsin.',
+            'Bu oturum ${widget.sohbet.sunucu} sunucusunda. Uzak Git paneli için köprüyü güncelle (Ayarlar › Köprü).',
       );
     }
     if (_hata != null) return _Bos(simge: Icons.error_outline, metin: _hata!);
@@ -285,7 +296,7 @@ class _GitPaneliState extends State<GitPaneli> {
                 ),
             ],
           ),
-          if (github && ghGiris && c.yetenek('derleme'))
+          if (github && ghGiris && !_uzak && c.yetenek('derleme'))
             DerlemeBolumu(calisma: c, cwd: cwd, degisti: _yenile),
           const SizedBox(height: 16),
           Text(
@@ -431,11 +442,11 @@ class _GitPaneliState extends State<GitPaneli> {
 class _FarkGorunumu extends StatelessWidget {
   const _FarkGorunumu({
     required this.calisma,
-    required this.cwd,
+    required this.hedef,
     required this.yol,
   });
   final Calisma calisma;
-  final String cwd;
+  final Map<String, Object?> hedef;
   final String yol;
 
   @override
@@ -464,7 +475,7 @@ class _FarkGorunumu extends StatelessWidget {
         ),
         Expanded(
           child: FutureBuilder(
-            future: calisma.istemci.iste('git_fark', {'cwd': cwd, 'yol': yol}),
+            future: calisma.istemci.iste('git_fark', {...hedef, 'yol': yol}),
             builder: (context, snap) {
               if (snap.hasError) return Center(child: Text('${snap.error}'));
               if (!snap.hasData) {

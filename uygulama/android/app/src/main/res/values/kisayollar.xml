@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="kisayol_ses">Konuş</string>
+    <string name="kisayol_ses_uzun">Sesli konuşmayı başlat</string>
+</resources>

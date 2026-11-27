@@ -59,26 +59,44 @@ abstract final class Bildirim {
     required String metin,
     String? oturum,
     bool onemli = false,
+
+    /// Verilirse bildirimde "İzin ver / Bu oturumda hep / Reddet" düğmeleri olur.
+    String? rid,
   }) => _cagir<void>('goster', {
     'kimlik': kimlik,
     'baslik': baslik,
     'metin': metin,
     'oturum': oturum,
     'onemli': onemli,
+    'rid': rid,
   });
 
   static Future<void> iptal(int kimlik) =>
       _cagir<void>('iptal', {'kimlik': kimlik});
 
+  /// Uygulama "Konuş" kısayoluyla açıldıysa true (bir kez).
+  static Future<bool> acilisSes() async =>
+      await _cagir<bool>('acilisSes') ?? false;
+
   /// Uygulama bir bildirime dokunularak açıldıysa o oturum (bir kez).
   static Future<String?> acilisOturumu() => _cagir<String>('acilisOturumu');
 
-  /// Uygulama açıkken bir bildirime dokunulunca çağrılır.
-  static void acilinca(void Function(String oturum) geri) {
+  /// Uygulama açıkken bir bildirime dokunulunca [acildi], onay bildirimindeki
+  /// bir düğmeye basılınca [karar] çağrılır.
+  static void dinle({
+    required void Function(String oturum) acildi,
+    required void Function(String oturum, String rid, String karar) karar,
+    required void Function() ses,
+  }) {
     if (!destekleniyor) return;
     _kanal.setMethodCallHandler((cagri) async {
-      if (cagri.method == 'acildi' && cagri.arguments is String) {
-        geri(cagri.arguments as String);
+      final a = cagri.arguments;
+      if (cagri.method == 'acildi' && a is String) {
+        acildi(a);
+      } else if (cagri.method == 'karar' && a is Map) {
+        karar('${a['oturum']}', '${a['rid']}', '${a['karar']}');
+      } else if (cagri.method == 'ses') {
+        ses();
       }
     });
   }

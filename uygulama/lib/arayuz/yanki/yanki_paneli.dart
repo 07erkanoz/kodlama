@@ -393,6 +393,16 @@ class _YankiAyarlariState extends State<YankiAyarlari> {
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
+          title: const Text('Sesle onay'),
+          subtitle: const Text(
+            'Onay bekleyen adımı "onayla", "hep onayla" ya da "reddet" diyerek '
+            'ver. Kısa bir "evet" / "hayır" da sayılır.',
+          ),
+          value: a.sesleOnay,
+          onChanged: (v) => setState(() => a.sesleOnay = v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
           title: const Text('Konuşmada tam ekran'),
           subtitle: const Text(
             'Mikrofona basınca Yankı ekranı açılır; saat ve gezinme çubukları gizlenir.',

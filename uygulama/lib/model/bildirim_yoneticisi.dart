@@ -22,7 +22,7 @@ class BildirimYoneticisi {
     c.kurulum.addListener(_servisiGuncelle);
     SesliKonusma.herhangiAcik.addListener(_servisiGuncelle);
     _abone = c.olaylar.listen(_olay);
-    Bildirim.acilinca(_oturumuAc);
+    Bildirim.dinle(acildi: _oturumuAc, karar: _karar, ses: _ses);
     unawaited(_acilistaOturum());
   }
 
@@ -32,6 +32,9 @@ class BildirimYoneticisi {
   bool _onde = true;
   String _sonServis = '';
   final _gosterilen = <int>{};
+
+  /// Oturum → bekleyen onaylar (sırayla); bildirimde ilki gösterilir.
+  final _onaylar = <String, List<Map<String, dynamic>>>{};
 
   void dispose() {
     _yasam.dispose();
@@ -122,16 +125,27 @@ class BildirimYoneticisi {
   // --- olay bildirimleri (uygulama ekranda değilken)
 
   void _olay(Map<String, dynamic> e) {
-    if (_onde) return;
     final oturum = e['oturum'] as String?;
+    // Bekleyen onaylar uygulama öndeyken de izlenir: arka plana geçince
+    // bildirimden verilebilsin.
+    if (oturum != null) {
+      if (e['ev'] == 'onay' && e['rid'] != null) {
+        (_onaylar[oturum] ??= []).add(e);
+      } else if (e['ev'] == 'onay_kapandi') {
+        final liste = _onaylar[oturum];
+        final ilkti = liste?.firstOrNull?['rid'] == e['rid'];
+        liste?.removeWhere((x) => x['rid'] == e['rid']);
+        if (liste != null && liste.isEmpty) _onaylar.remove(oturum);
+        if (ilkti && !_onde) _onayGoster(oturum);
+        return;
+      } else if (e['ev'] == 'bitti') {
+        _onaylar.remove(oturum);
+      }
+    }
+    if (_onde) return;
     switch (e['ev']) {
       case 'onay':
-        _goster(
-          oturum,
-          'Onay bekliyor · ${_baslik(oturum)}',
-          '${e['arac'] ?? ''}: ${e['ozet'] ?? ''}'.trim(),
-          onemli: true,
-        );
+        if (_onaylar[oturum]?.firstOrNull == e) _onayGoster(oturum);
       case 'bitti':
         final hata = e['hata'] as String?;
         _goster(
@@ -157,11 +171,48 @@ class BildirimYoneticisi {
     }
   }
 
+  /// Oturumun sıradaki onayı, düğmeleriyle; kalmadıysa bildirim kalkar.
+  void _onayGoster(String? oturum) {
+    final liste = oturum == null ? null : _onaylar[oturum];
+    final e = liste?.firstOrNull;
+    if (e == null) {
+      Bildirim.iptal(_kimlik(oturum));
+      return;
+    }
+    final kalan = liste!.length > 1 ? ' (+${liste.length - 1})' : '';
+    _goster(
+      oturum,
+      'Onay bekliyor$kalan · ${_baslik(oturum)}',
+      '${e['arac'] ?? ''}: ${e['ozet'] ?? ''}'.trim(),
+      onemli: true,
+      rid: e['rid'] as String?,
+    );
+  }
+
+  /// Bildirimdeki düğme: kararı köprüye ilet; sıradakini göster.
+  Future<void> _karar(String oturum, String rid, String karar) async {
+    try {
+      await c.istemci.iste('onay', {
+        'oturum': oturum,
+        'rid': rid,
+        'karar': karar,
+      });
+    } catch (_) {
+      _goster(
+        oturum,
+        'Onay iletilemedi · ${_baslik(oturum)}',
+        'Köprüye ulaşılamadı. Onaylamak için dokun.',
+        onemli: true,
+      );
+    }
+  }
+
   void _goster(
     String? oturum,
     String baslik,
     String metin, {
     bool onemli = false,
+    String? rid,
   }) {
     final kimlik = _kimlik(oturum);
     _gosterilen.add(kimlik);
@@ -171,6 +222,7 @@ class BildirimYoneticisi {
       metin: metin,
       oturum: oturum,
       onemli: onemli,
+      rid: rid,
     );
   }
 
@@ -179,6 +231,17 @@ class BildirimYoneticisi {
   Future<void> _acilistaOturum() async {
     final oturum = await Bildirim.acilisOturumu();
     if (oturum != null) await _oturumuAc(oturum);
+    if (await Bildirim.acilisSes()) _ses();
+  }
+
+  /// Kulaklık tuşu, "Konuş" kısayolu ya da bildirim düğmesi.
+  Future<void> _ses() async {
+    for (var i = 0; i < 40 && c.baglanti != BaglantiDurumu.bagli; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    try {
+      await c.sesiAcKapat();
+    } catch (_) {}
   }
 
   Future<void> _oturumuAc(String oturum) async {

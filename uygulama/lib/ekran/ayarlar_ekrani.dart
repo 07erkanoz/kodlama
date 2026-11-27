@@ -4,12 +4,14 @@ import 'package:flutter/services.dart';
 import '../arayuz/ortak.dart';
 import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
+import '../model/istemler.dart';
 import '../servis/bildirim.dart';
 import '../servis/guncelleme.dart';
 import '../servis/termux.dart';
 import 'giris_penceresi.dart';
 import 'kurulum_paneli.dart';
 import 'mcp_ekrani.dart';
+import 'zamanlanmis_isler.dart';
 
 /// Ayarlar: GitHub hesabı, SSH anahtarı, uzak sunucular, görünüm ve bağlantı.
 /// Giriş işlemleri her aracın kendi akışıyla Termux'ta yapılır.
@@ -272,6 +274,15 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                                 _sunucuSatiri(t, s.cast<String, dynamic>()),
                             ],
                           ),
+                  ),
+                  _IstemlerBolumu(calisma: c),
+                  _Bolum(
+                    simge: Icons.schedule_outlined,
+                    baslik: 'Zamanlanmış işler',
+                    aciklama:
+                        'Belirlenen saatte yeni bir oturum açılır ve istem gönderilir. '
+                        'Köprü açık olmalı; telefon uyurken en çok 30 dakika gecikebilir.',
+                    child: ZamanlanmisIsler(calisma: c),
                   ),
                   _Bolum(
                     simge: Icons.palette_outlined,
@@ -1409,5 +1420,126 @@ class _GuncellemeBolumuState extends State<_GuncellemeBolumu> {
   static String _tarih(DateTime d) {
     String iki(int n) => n.toString().padLeft(2, '0');
     return '${iki(d.day)}.${iki(d.month)}.${d.year} ${iki(d.hour)}:${iki(d.minute)}';
+  }
+}
+
+/// Ayarlar › Hazır istemler: yazma kutusunda "/ad" ile çağrılan metinler.
+class _IstemlerBolumu extends StatefulWidget {
+  const _IstemlerBolumu({required this.calisma});
+  final Calisma calisma;
+
+  @override
+  State<_IstemlerBolumu> createState() => _IstemlerBolumuState();
+}
+
+class _IstemlerBolumuState extends State<_IstemlerBolumu> {
+  late List<Istem> _liste = widget.calisma.ayarlar.istemler;
+
+  void _kaydet(List<Istem> yeni) {
+    widget.calisma.ayarlar.istemler = yeni;
+    setState(() => _liste = yeni);
+  }
+
+  Future<void> _duzenle([int? i]) async {
+    final eski = i == null ? null : _liste[i];
+    final ad = TextEditingController(text: eski?.ad ?? '');
+    final metin = TextEditingController(text: eski?.metin ?? '');
+    final tamam = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(eski == null ? 'Yeni istem' : 'İstemi düzenle'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: ad,
+              decoration: const InputDecoration(
+                labelText: 'Kısa ad',
+                prefixText: '/',
+                helperText: 'Boşluksuz, ör. test',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: metin,
+              minLines: 3,
+              maxLines: 8,
+              decoration: const InputDecoration(
+                labelText: 'Ajana gidecek metin',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Kaydet'),
+          ),
+        ],
+      ),
+    );
+    final a = ad.text.trim().replaceAll(RegExp(r'[\s/]+'), '-');
+    final m = metin.text.trim();
+    ad.dispose();
+    metin.dispose();
+    if (tamam != true || a.isEmpty || m.isEmpty) return;
+    final yeni = [..._liste];
+    if (i == null) {
+      yeni.add(Istem(a, m));
+    } else {
+      yeni[i] = Istem(a, m);
+    }
+    _kaydet(yeni);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = Theme.of(context).colorScheme;
+    return _Bolum(
+      simge: Icons.bolt_outlined,
+      baslik: 'Hazır istemler',
+      aciklama:
+          'Yazma kutusunda "/" yazınca çıkar; seçince metni kutuya gelir, '
+          'göndermeden önce düzenleyebilirsin.',
+      sag: TextButton.icon(
+        onPressed: _duzenle,
+        icon: const Icon(Icons.add, size: 16),
+        label: const Text('Ekle'),
+      ),
+      child: Column(
+        children: [
+          for (final (i, x) in _liste.indexed)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text('/${x.ad}'),
+              subtitle: Text(
+                x.metin,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _duzenle(i),
+              trailing: IconButton(
+                tooltip: 'Sil',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => _kaydet([..._liste]..removeAt(i)),
+              ),
+            ),
+          if (_liste.isEmpty)
+            Text('İstem yok.', style: TextStyle(color: r.onSurfaceVariant)),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => _kaydet(varsayilanIstemler),
+              child: const Text('Varsayılanlara dön'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

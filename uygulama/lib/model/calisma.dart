@@ -12,6 +12,7 @@ import '../servis/paylasim.dart';
 import '../servis/termux.dart';
 import '../servis/yerel_dosya.dart';
 import 'kurulum.dart';
+import 'sesli_konusma.dart';
 import 'sohbet.dart';
 import 'terminal_oturumu.dart';
 
@@ -37,7 +38,7 @@ class Calisma extends ChangeNotifier {
 
   /// Bu uygulamanın beklediği en düşük köprü sürümü. Köprüye yeni bir işlem
   /// eklenince artırılır; telefondaki köprü daha eskiyse güncelleme önerilir.
-  static const gerekenKopruSurumu = '0.11.0';
+  static const gerekenKopruSurumu = '0.12.0';
   String? kopruSurumu;
   bool kopruGuncelleniyor = false;
   KurulumSunucusu? _kurulumSunucusu;
@@ -146,6 +147,13 @@ class Calisma extends ChangeNotifier {
         if (i >= 0) {
           oturumlar[i] = (e['ozet'] as Map).cast<String, dynamic>();
           notifyListeners();
+        } else if (e['yeni'] == true && e['ozet'] is Map) {
+          // Köprünün kendi açtığı oturum (zamanlanmış iş): listenin başına.
+          oturumlar = [
+            (e['ozet'] as Map).cast<String, dynamic>(),
+            ...oturumlar,
+          ];
+          notifyListeners();
         }
       case 'durum':
         final i = oturumlar.indexWhere((o) => o['id'] == e['oturum']);
@@ -244,6 +252,29 @@ class Calisma extends ChangeNotifier {
     oturumlar = [ozet, ...oturumlar];
     await sec(ozet);
     if (yanki) await _yankiCihaziBagla();
+  }
+
+  /// [s]'de yapılan işi öbür ajana (Claude ↔ Codex) aynı klasörde
+  /// inceletir: yeni bir oturum açılır ve inceleme isteği gönderilir.
+  Future<void> inceletme(Sohbet s, String ozet) async {
+    final hedef = s.ajan == 'claude' ? 'codex' : 'claude';
+    final kim = s.ajan == 'claude' ? 'Claude Code' : 'Codex';
+    final kisa = ozet.length > 6000 ? '${ozet.substring(0, 6000)}…' : ozet;
+    await yeniOturum(
+      ajan: hedef,
+      cwd: s.cwd,
+      mod: 'sor', // inceleyen okur; değiştireceği bir şey olursa sorar
+      sunucu: s.sunucu,
+      uzakKlasor: s.uzakKlasor,
+    );
+    await secili?.gonder(
+      'Bu projede $kim az önce bir iş yaptı. Yaptığı değişiklikleri bağımsız '
+      'olarak incele: önce `git status` ve `git diff` ile neyin değiştiğine bak, '
+      'gerekirse dosyaları oku. Hataları, eksik kalan yerleri, güvenlik '
+      'sorunlarını ve test edilmemiş durumları önem sırasıyla, dosya ve satır '
+      'vererek listele. Kod değiştirme; yalnız bulguları yaz.'
+      '${kisa.trim().isEmpty ? '' : '\n\n$kim yaptığını şöyle özetledi:\n$kisa'}',
+    );
   }
 
   /// Asistan'ı aç: varsa en son Asistan oturumu, yoksa yenisi (Codex).
@@ -552,6 +583,46 @@ class Calisma extends ChangeNotifier {
     try {
       await istemci.iste('kota_oku');
     } catch (_) {}
+  }
+
+  /// Uzak oturumdaki dosyayı bu cihazın önbelleğine indirir ve yerel yolunu
+  /// verir (önizleyiciler yerel dosya okur; düzenleyiciden kaydedilen
+  /// önbellek dosyasını köprü sunucuya geri yazar). Göreli yol oturumun
+  /// uzak klasörüne göredir.
+  Future<String> uzakYerel(Sohbet s, String yol) async {
+    var tam = yol;
+    if (!tam.startsWith('/') && !tam.startsWith('~')) {
+      final kok = s.uzakKlasor ?? '~';
+      tam = '${kok.endsWith('/') ? kok : '$kok/'}$tam';
+    }
+    final r = await istemci.iste('uzak_indir', {
+      'sunucu': s.sunucu,
+      'yol': tam,
+    });
+    return r['yol'] as String;
+  }
+
+  /// Sesli konuşmayı aç ya da kapat (kulaklık tuşu, kısayol, bildirim).
+  /// Açık oturum sesi desteklemiyorsa Asistan açılır.
+  Future<void> sesiAcKapat() async {
+    if (!yetenek('ses')) return;
+    var s = secili;
+    if (s != null && s.ses.acik) {
+      await s.ses.bitir();
+      return;
+    }
+    if (s == null || !s.sesDestekleniyor) {
+      if (!yetenek('asistan')) return;
+      await asistanAc();
+      s = secili;
+      if (s == null) return;
+    }
+    await s.ses.baslat(
+      ses: gecerliSes(ayarlar.sesSesi),
+      dil: ayarlar.sesDili,
+      model: ayarlar.sesModeli.isEmpty ? null : ayarlar.sesModeli,
+      sesleOnay: ayarlar.sesleOnay,
+    );
   }
 
   void onizle(String? yol) {

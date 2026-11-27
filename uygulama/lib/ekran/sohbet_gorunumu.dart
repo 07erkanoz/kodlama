@@ -77,7 +77,9 @@ class _UyariBlok extends _Blok {
 
 List<_Blok> _bloklar(List<Oge> ogeler) {
   final out = <_Blok>[];
-  var turBasi = true;
+  // Ajan başlığı yalnız ilk yanıtta ve konuşan ajan değişince (Yankı'da
+  // Codex ↔ Claude) görünür; her turda tekrarlanmaz.
+  var ilk = true;
   String? kaynak;
   final turMetni = <String>[];
   for (final o in ogeler) {
@@ -87,15 +89,14 @@ List<_Blok> _bloklar(List<Oge> ogeler) {
     if (o is! KullaniciOge &&
         o is! DosyaOge &&
         o is! BittiOge &&
-        (turBasi || o.kaynak != kaynak)) {
+        (ilk || o.kaynak != kaynak)) {
       out.add(_AjanBasligi(o.kaynak));
       kaynak = o.kaynak;
-      turBasi = false;
+      ilk = false;
     }
     switch (o) {
       case KullaniciOge():
         out.add(_KullaniciBlok(o));
-        turBasi = true;
         turMetni.clear();
       case MetinOge():
         out.add(_MetinBlok(o));
@@ -148,7 +149,10 @@ class SohbetGorunumu extends StatefulWidget {
 
 class _SohbetGorunumuState extends State<SohbetGorunumu> {
   final _yazi = TextEditingController();
+  final _yaziOdak = FocusNode();
   final _ekler = <String>[];
+  final _kaydirma = ScrollController();
+  final _altta = ValueNotifier(true);
   bool _ekYukleniyor = false;
 
   Sohbet get s => widget.sohbet;
@@ -160,6 +164,54 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _paylasimiAl());
     widget.sohbet.addListener(_ulasmayaniAl);
     WidgetsBinding.instance.addPostFrameCallback((_) => _ulasmayaniAl());
+    // Liste ters: 0 en alt. Biraz yukarı çıkınca "en alta in" düğmesi görünür.
+    _kaydirma.addListener(
+      () => _altta.value = !_kaydirma.hasClients || _kaydirma.offset < 400,
+    );
+  }
+
+  void _enAlta() {
+    if (!_kaydirma.hasClients) return;
+    _kaydirma.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// Gönderilmiş mesajı yazma kutusuna al: düzenleyip yeni mesaj olarak gönder.
+  void _duzenle(KullaniciOge o) {
+    _yazi.value = TextEditingValue(
+      text: o.metin,
+      selection: TextSelection.collapsed(offset: o.metin.length),
+    );
+    setState(() {
+      _ekler
+        ..clear()
+        ..addAll(o.ekler);
+    });
+    _yaziOdak.requestFocus();
+  }
+
+  Future<void> _incelet(String yanit) async {
+    final m = ScaffoldMessenger.of(context);
+    try {
+      await widget.calisma.inceletme(s, yanit);
+    } catch (e) {
+      m.showSnackBar(SnackBar(content: Text('İnceleme başlatılamadı: $e')));
+    }
+  }
+
+  Future<void> _yenidenGonder(KullaniciOge o) async {
+    try {
+      await s.gonder(o.metin, ekler: o.ekler);
+      _enAlta();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Gönderilemedi: $e')));
+      }
+    }
   }
 
   /// Başlangıç ekranından gönderilip ulaşmayan ilk mesajı kutuya geri koy.
@@ -178,6 +230,9 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     widget.calisma.paylasim.removeListener(_paylasimiAl);
     widget.sohbet.removeListener(_ulasmayaniAl);
     _yazi.dispose();
+    _yaziOdak.dispose();
+    _kaydirma.dispose();
+    _altta.dispose();
     super.dispose();
   }
 
@@ -198,7 +253,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
   /// Mesajdaki bir bağlantıya ya da dosya yoluna dokunuldu. Web adresleri
   /// tarayıcıda; HTML sayfaları göreli dosyalarıyla tarayıcıda; diğer
   /// dosyalar (resim, PDF, kod…) uygulamanın önizlemesinde açılır.
-  void _dosyaAc(String hedef) {
+  void _dosyaAc(String hedef, {bool yerel = false}) {
     var yol = hedef.trim();
     final adres = Uri.tryParse(yol);
     if (adres != null && yerelAdres(adres)) {
@@ -213,14 +268,35 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     if (yol.startsWith('file://')) yol = Uri.decodeComponent(yol.substring(7));
     // `a.dart:42`, `a.dart:42:7`, `a.dart#L42` gibi satır ekleri
     yol = yol.replaceFirst(RegExp(r'(#L\d+(-L?\d+)?|(:\d+){1,2})$'), '');
-    if (s.sunucu != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '$yol ${s.sunucu} sunucusunda; uzak dosyalar henüz önizlenemiyor.',
+    if (s.sunucu != null && !yerel) {
+      final m = ScaffoldMessenger.of(context);
+      if (!widget.calisma.yetenek('uzak_dosya')) {
+        m.showSnackBar(
+          SnackBar(
+            content: Text(
+              '$yol ${s.sunucu} sunucusunda; önizlemek için köprüyü güncelle.',
+            ),
           ),
+        );
+        return;
+      }
+      // Uzak dosya: bu cihaza indirilip yerel önizleyiciyle açılır.
+      m.showSnackBar(
+        SnackBar(
+          content: Text('${yol.split('/').last} sunucudan alınıyor…'),
+          duration: const Duration(seconds: 2),
         ),
       );
+      widget.calisma
+          .uzakYerel(s, yol)
+          .then(
+            (y) {
+              if (mounted) _dosyaAc(y, yerel: true);
+            },
+            onError: (Object e) {
+              m.showSnackBar(SnackBar(content: Text('Açılamadı: $e')));
+            },
+          );
       return;
     }
     final tam = yol.startsWith('/')
@@ -266,6 +342,7 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
         ses: gecerliSes(a.sesSesi),
         dil: a.sesDili,
         model: a.sesModeli.isEmpty ? null : a.sesModeli,
+        sesleOnay: a.sesleOnay,
       );
       // Yankı görünümünde konuşma doğrudan tam ekran açılır.
       if (a.sesGorunumu != 'sade' && a.sesTamEkran) _yankiEkraniAc();
@@ -449,22 +526,51 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                     )
                   : bloklar.isEmpty
                   ? _Bos(sohbet: s)
-                  : ListView.builder(
-                      reverse: true,
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                      itemCount: say,
-                      itemBuilder: (context, i) {
-                        if (s.calisiyor && i == 0) {
-                          return _sar(_Calisiyor(sohbet: s));
-                        }
-                        final b =
-                            bloklar[bloklar.length -
-                                1 -
-                                (i - (s.calisiyor ? 1 : 0))];
-                        return _sar(_blok(b));
-                      },
+                  : Stack(
+                      children: [
+                        ListView.builder(
+                          controller: _kaydirma,
+                          reverse: true,
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                          itemCount: say,
+                          itemBuilder: (context, i) {
+                            if (s.calisiyor && i == 0) {
+                              return _sar(_Calisiyor(sohbet: s));
+                            }
+                            final b =
+                                bloklar[bloklar.length -
+                                    1 -
+                                    (i - (s.calisiyor ? 1 : 0))];
+                            return _sar(_blok(b));
+                          },
+                        ),
+                        Positioned(
+                          right: 0,
+                          left: 0,
+                          bottom: 8,
+                          child: ValueListenableBuilder(
+                            valueListenable: _altta,
+                            builder: (context, altta, _) => IgnorePointer(
+                              ignoring: altta,
+                              child: AnimatedOpacity(
+                                opacity: altta ? 0 : 1,
+                                duration: const Duration(milliseconds: 150),
+                                child: Center(
+                                  child: IconButton.filledTonal(
+                                    tooltip: 'En alta in',
+                                    onPressed: _enAlta,
+                                    icon: const Icon(
+                                      Icons.arrow_downward_rounded,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
             ),
             if (bekleyen.isNotEmpty)
@@ -513,7 +619,9 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 780),
                     child: MesajKutusu(
+                      odak: _yaziOdak,
                       enAzSatir: 2,
+                      istemler: widget.calisma.ayarlar.istemler,
                       denetleyici: _yazi,
                       gonder: _gonder,
                       durdur: s.durdur,
@@ -633,7 +741,12 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
   );
 
   Widget _blok(_Blok b) => switch (b) {
-    _KullaniciBlok(:final oge) => _KullaniciBalonu(oge: oge, dosyaAc: _dosyaAc),
+    _KullaniciBlok(:final oge) => _KullaniciBalonu(
+      oge: oge,
+      dosyaAc: _dosyaAc,
+      duzenle: _duzenle,
+      yenidenGonder: _yenidenGonder,
+    ),
     _AjanBasligi(:final ajan) => _AjanSatiri(ajan: ajan ?? s.ajan),
     _MetinBlok(:final oge) => Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -650,6 +763,16 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
     _BittiBlok(:final oge, :final yanit) => _BittiSatiri(
       oge: oge,
       yanit: yanit,
+      // Son tur, proje oturumunda: öbür ajana inceletilebilir.
+      incelet:
+          !s.yanki &&
+              oge.hata == null &&
+              identical(oge, s.ogeler.whereType<BittiOge>().lastOrNull)
+          ? () => _incelet(yanit)
+          : null,
+      inceletEtiketi: s.ajan == 'claude'
+          ? "Codex'e incelet"
+          : "Claude'a incelet",
     ),
     _UyariBlok(:final metin, :final bilgi) => _UyariSatiri(
       metin: metin,
@@ -933,9 +1056,55 @@ class _DusunceState extends State<_Dusunce> {
 }
 
 class _KullaniciBalonu extends StatelessWidget {
-  const _KullaniciBalonu({required this.oge, required this.dosyaAc});
+  const _KullaniciBalonu({
+    required this.oge,
+    required this.dosyaAc,
+    required this.duzenle,
+    required this.yenidenGonder,
+  });
   final KullaniciOge oge;
   final void Function(String) dosyaAc;
+  final void Function(KullaniciOge) duzenle;
+  final void Function(KullaniciOge) yenidenGonder;
+
+  Future<void> _menu(BuildContext context) async {
+    HapticFeedback.selectionClick();
+    final secim = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Kopyala'),
+              onTap: () => Navigator.pop(context, 'kopyala'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Düzenleyip gönder'),
+              subtitle: const Text('Metin yazma kutusuna gelir'),
+              onTap: () => Navigator.pop(context, 'duzenle'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.replay_rounded),
+              title: const Text('Yeniden gönder'),
+              onTap: () => Navigator.pop(context, 'yeniden'),
+            ),
+          ],
+        ),
+      ),
+    );
+    switch (secim) {
+      case 'kopyala':
+        await Clipboard.setData(ClipboardData(text: oge.metin));
+      case 'duzenle':
+        duzenle(oge);
+      case 'yeniden':
+        yenidenGonder(oge);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -943,47 +1112,50 @@ class _KullaniciBalonu extends StatelessWidget {
     final r = t.colorScheme;
     return Align(
       alignment: Alignment.centerRight,
-      child: Container(
-        margin: const EdgeInsets.only(top: 18, bottom: 4, left: 56),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: r.surfaceContainerHigh,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(18),
-            topRight: Radius.circular(18),
-            bottomLeft: Radius.circular(18),
-            bottomRight: Radius.circular(6),
+      child: GestureDetector(
+        onLongPress: () => _menu(context),
+        child: Container(
+          margin: const EdgeInsets.only(top: 18, bottom: 4, left: 56),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: r.surfaceContainerHigh,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(18),
+              topRight: Radius.circular(18),
+              bottomLeft: Radius.circular(18),
+              bottomRight: Radius.circular(6),
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (oge.metin.isNotEmpty)
-              SelectableText(
-                oge.metin,
-                style: t.textTheme.bodyLarge?.copyWith(
-                  fontSize: 15,
-                  height: 1.45,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (oge.metin.isNotEmpty)
+                Text(
+                  oge.metin,
+                  style: t.textTheme.bodyLarge?.copyWith(
+                    fontSize: 15,
+                    height: 1.45,
+                  ),
                 ),
-              ),
-            if (oge.ekler.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final e in oge.ekler)
-                    ActionChip(
-                      avatar: Icon(dosyaSimgesi(e), size: 14),
-                      label: Text(
-                        e.split('/').last.replaceFirst(RegExp(r'^\d+_'), ''),
+              if (oge.ekler.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final e in oge.ekler)
+                      ActionChip(
+                        avatar: Icon(dosyaSimgesi(e), size: 14),
+                        label: Text(
+                          e.split('/').last.replaceFirst(RegExp(r'^\d+_'), ''),
+                        ),
+                        onPressed: () => dosyaAc(e),
                       ),
-                      onPressed: () => dosyaAc(e),
-                    ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -1170,7 +1342,16 @@ class _AracSatiriState extends State<_AracSatiri> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (fark != null)
+                if (_komutMu(o.ad))
+                  KomutKarti(
+                    komut: _komutMetni(o.girdi) ?? o.ozet,
+                    cikti: o.cikti,
+                    hata: o.hata,
+                    bitti: o.bitti,
+                  )
+                else if (o.ad == 'TodoWrite' && _planMaddeleri(o.girdi) != null)
+                  PlanListesi(maddeler: _planMaddeleri(o.girdi)!)
+                else if (fark != null)
                   for (final (yol, satirlar) in fark)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 6),
@@ -1182,10 +1363,205 @@ class _AracSatiriState extends State<_AracSatiri> {
                     )
                 else
                   KodKutusu(metin: _girdiMetni(o.girdi), enFazla: 160),
-                if ((o.cikti ?? '').trim().isNotEmpty && fark == null) ...[
+                if ((o.cikti ?? '').trim().isNotEmpty &&
+                    fark == null &&
+                    !_komutMu(o.ad) &&
+                    o.ad != 'TodoWrite') ...[
                   const SizedBox(height: 6),
                   KodKutusu(metin: o.cikti!, hata: o.hata),
                 ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+bool _komutMu(String ad) => ad == 'Bash' || ad == 'Komut';
+
+String? _komutMetni(String girdi) {
+  try {
+    final j = jsonDecode(girdi);
+    if (j is Map && j['command'] is String) {
+      final k = j['command'] as String;
+      // Codex komutu "bash -lc '…'" sarmalıyla verir
+      final m = RegExp(
+        r"^\S*?(?:ba|z)?sh -lc '(.*)'$",
+        dotAll: true,
+      ).firstMatch(k);
+      return m?.group(1) ?? k;
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// TodoWrite girdisindeki maddeler: (metin, durum).
+List<(String, String)>? _planMaddeleri(String girdi) {
+  try {
+    final j = jsonDecode(girdi);
+    final liste = j is Map ? j['todos'] : null;
+    if (liste is! List) return null;
+    return [
+      for (final m in liste)
+        if (m is Map && m['content'] is String)
+          (m['content'] as String, '${m['status'] ?? 'pending'}'),
+    ];
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Komut adımı: terminal görünümlü kart; komut, çıktı, çıkış durumu ve
+/// kopyalama.
+class KomutKarti extends StatelessWidget {
+  const KomutKarti({
+    super.key,
+    required this.komut,
+    this.cikti,
+    this.hata = false,
+    this.bitti = true,
+  });
+  final String komut;
+  final String? cikti;
+  final bool hata;
+  final bool bitti;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    const zemin = Color(0xFF1E1F22);
+    const yazi = Color(0xFFD7DAE0);
+    final soluk = yazi.withValues(alpha: .6);
+    final mono = monospace.copyWith(fontSize: 12, height: 1.5, color: yazi);
+    final c = (cikti ?? '').trimRight();
+    return Container(
+      decoration: BoxDecoration(
+        color: zemin,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: Colors.white.withValues(alpha: .05),
+            padding: const EdgeInsets.only(left: 10, right: 2),
+            height: 30,
+            child: Row(
+              children: [
+                Icon(Icons.terminal_rounded, size: 14, color: soluk),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    !bitti
+                        ? 'çalışıyor…'
+                        : hata
+                        ? 'hata ile bitti'
+                        : 'tamamlandı',
+                    style: t.textTheme.labelSmall?.copyWith(
+                      color: hata ? const Color(0xFFFF8A80) : soluk,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Komutu kopyala',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 14,
+                  color: soluk,
+                  onPressed: () =>
+                      Clipboard.setData(ClipboardData(text: komut)),
+                  icon: const Icon(Icons.copy_rounded),
+                ),
+              ],
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(
+                    text: '\$ ',
+                    style: TextStyle(color: Color(0xFF98C379)),
+                  ),
+                  TextSpan(text: komut),
+                ],
+              ),
+              style: mono,
+              softWrap: false,
+            ),
+          ),
+          if (c.isNotEmpty)
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 320),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Text(
+                    c.length > 20000 ? '${c.substring(0, 20000)}\n…' : c,
+                    style: mono.copyWith(
+                      color: hata ? const Color(0xFFFFB4AB) : soluk,
+                    ),
+                    softWrap: false,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ajanın planı (TodoWrite): yapılanlar işaretli, süren vurgulu.
+class PlanListesi extends StatelessWidget {
+  const PlanListesi({super.key, required this.maddeler});
+  final List<(String, String)> maddeler;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (metin, durum) in maddeler)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  switch (durum) {
+                    'completed' => Icons.check_circle_rounded,
+                    'in_progress' => Icons.radio_button_checked_rounded,
+                    _ => Icons.radio_button_unchecked_rounded,
+                  },
+                  size: 16,
+                  color: switch (durum) {
+                    'completed' => r.primary,
+                    'in_progress' => r.tertiary,
+                    _ => r.outline,
+                  },
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    metin,
+                    style: t.textTheme.bodyMedium?.copyWith(
+                      color: durum == 'completed' ? r.onSurfaceVariant : null,
+                      decoration: durum == 'completed'
+                          ? TextDecoration.lineThrough
+                          : null,
+                      fontWeight: durum == 'in_progress'
+                          ? FontWeight.w600
+                          : null,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1455,9 +1831,18 @@ class _Dosyalar extends StatelessWidget {
 }
 
 class _BittiSatiri extends StatefulWidget {
-  const _BittiSatiri({required this.oge, required this.yanit});
+  const _BittiSatiri({
+    required this.oge,
+    required this.yanit,
+    this.incelet,
+    this.inceletEtiketi = '',
+  });
   final BittiOge oge;
   final String yanit;
+
+  /// Verilirse "öbür ajana incelet" düğmesi görünür.
+  final VoidCallback? incelet;
+  final String inceletEtiketi;
 
   @override
   State<_BittiSatiri> createState() => _BittiSatiriState();
@@ -1468,6 +1853,10 @@ class _BittiSatiriState extends State<_BittiSatiri> {
   Timer? _sayac;
 
   BittiOge get oge => widget.oge;
+
+  String get _maliyet => oge.maliyet == null
+      ? ''
+      : ' · ${'\u0024'}${oge.maliyet!.toStringAsFixed(3)}';
 
   @override
   void dispose() {
@@ -1515,14 +1904,16 @@ class _BittiSatiriState extends State<_BittiSatiri> {
       );
     }
     final kopyalanir = widget.yanit.isNotEmpty;
-    if (oge.maliyet == null && !kopyalanir) return const SizedBox(height: 4);
+    if (oge.maliyet == null && !kopyalanir && widget.incelet == null) {
+      return const SizedBox(height: 4);
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
           if (kopyalanir)
             IconButton(
-              tooltip: _kopyalandi ? 'Kopyalandı' : 'Yanıtı kopyala',
+              tooltip: _kopyalandi ? 'Kopyalandı' : 'Yanıtı kopyala$_maliyet',
               visualDensity: VisualDensity.compact,
               iconSize: 17,
               color: r.onSurfaceVariant,
@@ -1535,7 +1926,18 @@ class _BittiSatiriState extends State<_BittiSatiri> {
                 _kopyalandi ? Icons.check_rounded : Icons.copy_rounded,
               ),
             ),
-          if (oge.maliyet != null)
+          if (widget.incelet != null)
+            TextButton.icon(
+              onPressed: widget.incelet,
+              style: TextButton.styleFrom(
+                foregroundColor: r.onSurfaceVariant,
+                visualDensity: VisualDensity.compact,
+                textStyle: t.textTheme.labelMedium,
+              ),
+              icon: const Icon(Icons.rate_review_outlined, size: 16),
+              label: Text(widget.inceletEtiketi),
+            ),
+          if (oge.maliyet != null && !kopyalanir)
             Padding(
               padding: EdgeInsets.only(left: kopyalanir ? 4 : 0),
               child: Text(

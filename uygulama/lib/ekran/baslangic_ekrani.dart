@@ -409,6 +409,7 @@ class _BaslangicEkraniState extends State<BaslangicEkrani> {
                                   modSec: (v) => setState(() => _mod = v),
                                 );
                           return MesajKutusu(
+                            istemler: widget.calisma.ayarlar.istemler,
                             denetleyici: _yazi,
                             gonder: _gonder,
                             ekler: [for (final d in _paylasilan) d.yol],

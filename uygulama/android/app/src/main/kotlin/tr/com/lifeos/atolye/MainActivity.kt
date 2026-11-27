@@ -34,10 +34,14 @@ class MainActivity : FlutterActivity() {
     /** Bildirime dokunularak açıldıysa hangi oturum (Dart bir kez alır). */
     private var acilisOturumu: String? = null
 
+    /** Kısayoldan ("Konuş") açıldıysa: Dart açılışta sesi başlatır. */
+    private var acilisSes = false
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         Bildirimler.kanallariKur(this)
         acilisOturumu = intent?.getStringExtra(Bildirimler.EK_OTURUM)
+        acilisSes = intent?.action == Bildirimler.SES
         paylasim = Paylasim(this, flutterEngine.dartExecutor.binaryMessenger).also { it.isle(intent) }
         Pano(this, flutterEngine.dartExecutor.binaryMessenger)
         bildirimKanali = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "atolye/bildirim").apply {
@@ -72,7 +76,7 @@ class MainActivity : FlutterActivity() {
                                     try {
                                         NotificationManagerCompat.from(this@MainActivity).notify(
                                             Bildirimler.SERVIS_KIMLIGI,
-                                            Bildirimler.calisanBildirimi(this@MainActivity, baslik, metin, oturum, ilerleme),
+                                            Bildirimler.calisanBildirimi(this@MainActivity, baslik, metin, oturum, ilerleme, ses),
                                         )
                                     } catch (_: SecurityException) {}
                                 } else {
@@ -100,6 +104,7 @@ class MainActivity : FlutterActivity() {
                             call.argument<String>("metin") ?: "",
                             call.argument<String>("oturum"),
                             call.argument<Boolean>("onemli") ?: false,
+                            call.argument<String>("rid"),
                         )
                         result.success(null)
                     }
@@ -138,10 +143,15 @@ class MainActivity : FlutterActivity() {
                         result.success(acilisOturumu)
                         acilisOturumu = null
                     }
+                    "acilisSes" -> {
+                        result.success(acilisSes)
+                        acilisSes = false
+                    }
                     else -> result.notImplemented()
                 }
             }
         }
+        Bildirimler.kanal = bildirimKanali
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "atolye/termux")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -265,9 +275,29 @@ class MainActivity : FlutterActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
+    /** Kulaklığın tuşu (uygulama öndeyken): sesli konuşmayı aç/kapat. */
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == android.view.KeyEvent.KEYCODE_HEADSETHOOK ||
+            keyCode == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+        ) {
+            if (event?.repeatCount == 0) bildirimKanali?.invokeMethod("ses", null)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (Bildirimler.kanal === bildirimKanali) Bildirimler.kanal = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
     /** Uygulama açıkken bildirime dokunuldu: oturumu Dart'a bildir. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action == Bildirimler.SES) {
+            bildirimKanali?.invokeMethod("ses", null)
+            return
+        }
         if (paylasim?.isle(intent) == true) return
         val oturum = intent.getStringExtra(Bildirimler.EK_OTURUM) ?: return
         bildirimKanali?.invokeMethod("acildi", oturum)

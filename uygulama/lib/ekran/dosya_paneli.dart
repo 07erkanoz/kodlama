@@ -24,7 +24,14 @@ class DosyaPaneli extends StatefulWidget {
 
 class _DosyaPaneliState extends State<DosyaPaneli>
     with SingleTickerProviderStateMixin {
-  late String _klasor = widget.sohbet.panelKlasoru ?? widget.sohbet.cwd;
+  late String _klasor = widget.sohbet.panelKlasoru ?? _kok;
+  bool _aciliyor = false;
+
+  /// Uzak oturumda dosyalar SSH ile gezilir (köprü destekliyorsa).
+  bool get _uzak => widget.sohbet.sunucu != null;
+  bool get _uzakGezilir => _uzak && widget.calisma.yetenek('uzak_dosya');
+  String get _kok =>
+      _uzak ? (widget.sohbet.uzakKlasor ?? '~') : widget.sohbet.cwd;
   Future<Map<String, dynamic>>? _liste;
   late final TabController _sekme = TabController(
     length: 3,
@@ -48,18 +55,49 @@ class _DosyaPaneliState extends State<DosyaPaneli>
   void didUpdateWidget(DosyaPaneli old) {
     super.didUpdateWidget(old);
     if (old.sohbet.id != widget.sohbet.id) {
-      _klasor = widget.sohbet.panelKlasoru ?? widget.sohbet.cwd;
+      _klasor = widget.sohbet.panelKlasoru ?? _kok;
       _sekme.index = widget.sohbet.panelSekmesi.clamp(0, 2);
       _yukle();
     }
   }
 
   void _yukle() {
-    if (widget.sohbet.sunucu != null) return;
+    if (_uzak && !_uzakGezilir) return;
     widget.sohbet.panelKlasoru = _klasor;
     setState(() {
-      _liste = widget.calisma.istemci.iste('listele', {'yol': _klasor});
+      _liste = _uzak
+          ? widget.calisma.istemci
+                .iste('uzak_gez', {
+                  'sunucu': widget.sohbet.sunucu,
+                  'yol': _klasor,
+                })
+                .then((d) {
+                  // "~" gibi yollar sunucuda açılmış haliyle sürsün
+                  _klasor = d['yol'] as String? ?? _klasor;
+                  widget.sohbet.panelKlasoru = _klasor;
+                  return d;
+                })
+          : widget.calisma.istemci.iste('listele', {'yol': _klasor});
     });
+  }
+
+  /// Dosyayı aç: uzak oturumda önce bu cihaza indirilir.
+  Future<void> _dosyaAc(String yol) async {
+    if (!_uzak) {
+      widget.ac(yol);
+      return;
+    }
+    if (_aciliyor) return;
+    final m = ScaffoldMessenger.of(context);
+    setState(() => _aciliyor = true);
+    try {
+      final yerel = await widget.calisma.uzakYerel(widget.sohbet, yol);
+      if (mounted) widget.ac(yerel);
+    } catch (e) {
+      m.showSnackBar(SnackBar(content: Text('Açılamadı: $e')));
+    } finally {
+      if (mounted) setState(() => _aciliyor = false);
+    }
   }
 
   @override
@@ -71,6 +109,7 @@ class _DosyaPaneliState extends State<DosyaPaneli>
         left: false,
         child: Column(
           children: [
+            if (_aciliyor) const LinearProgressIndicator(minHeight: 2),
             TabBar(
               controller: _sekme,
               tabs: const [
@@ -84,7 +123,7 @@ class _DosyaPaneliState extends State<DosyaPaneli>
                 controller: _sekme,
                 children: [
                   _oturumDosyalari(t),
-                  widget.sohbet.sunucu != null ? _uzak(t) : _gezgin(t),
+                  _uzak && !_uzakGezilir ? _uzakBilgi(t) : _gezgin(t),
                   GitPaneli(calisma: widget.calisma, sohbet: widget.sohbet),
                 ],
               ),
@@ -95,12 +134,12 @@ class _DosyaPaneliState extends State<DosyaPaneli>
     );
   }
 
-  Widget _uzak(ThemeData t) => Center(
+  Widget _uzakBilgi(ThemeData t) => Center(
     child: Padding(
       padding: const EdgeInsets.all(24),
       child: Text(
         '${widget.sohbet.sunucu} sunucusundaki klasör (${widget.sohbet.uzakKlasor}) buradan gezilemiyor; '
-        'ajandan dosyaları listelemesini isteyebilirsin.',
+        'köprüyü güncelleyince (Ayarlar › Köprü) gezilebilir.',
         textAlign: TextAlign.center,
         style: TextStyle(color: t.colorScheme.onSurfaceVariant),
       ),
@@ -132,7 +171,7 @@ class _DosyaPaneliState extends State<DosyaPaneli>
                 leading: Icon(dosyaSimgesi(d.yol)),
                 title: Text(d.goreli, overflow: TextOverflow.ellipsis),
                 subtitle: Text(d.eylem == 'yeni' ? 'yeni' : 'değişti'),
-                onTap: () => widget.ac(d.yol),
+                onTap: () => _dosyaAc(d.yol),
               ),
           ],
         );
@@ -169,7 +208,7 @@ class _DosyaPaneliState extends State<DosyaPaneli>
                   icon: const Icon(Icons.refresh),
                 ),
               ),
-              if (ust != null && _klasor != widget.sohbet.cwd)
+              if (ust != null && (_uzak || _klasor != widget.sohbet.cwd))
                 ListTile(
                   dense: true,
                   leading: const Icon(Icons.arrow_upward),
@@ -200,7 +239,7 @@ class _DosyaPaneliState extends State<DosyaPaneli>
                         _klasor = o['yol'] as String;
                         _yukle();
                       } else {
-                        widget.ac(o['yol'] as String);
+                        _dosyaAc(o['yol'] as String);
                       }
                     },
                   ),

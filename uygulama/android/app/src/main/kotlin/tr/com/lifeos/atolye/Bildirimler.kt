@@ -29,6 +29,9 @@ object Bildirimler {
     const val SERVIS_KIMLIGI = 1
     const val EK_OTURUM = "tr.com.lifeos.atolye.OTURUM"
 
+    /** Sesli konuşmayı aç/kapat (kısayol, bildirim düğmesi). */
+    const val SES = "tr.com.lifeos.atolye.SES"
+
     fun kanallariKur(baglam: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val yonetici = baglam.getSystemService(NotificationManager::class.java)
@@ -59,7 +62,15 @@ object Bildirimler {
 
     fun calisanBildirimi(
         baglam: Context, baslik: String, metin: String, oturum: String?, ilerleme: Boolean,
+        ses: Boolean = false,
     ): Notification {
+        // "Konuş" / "Konuşmayı bitir": uygulamayı öne getirip sesi açar ya da kapatır
+        val konus = PendingIntent.getActivity(
+            baglam, 2,
+            Intent(baglam, MainActivity::class.java).setAction(SES)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val cik = PendingIntent.getService(
             baglam, 1,
             Intent(baglam, AtolyeServisi::class.java).setAction(AtolyeServisi.CIK),
@@ -75,13 +86,34 @@ object Bildirimler {
             .setShowWhen(false)
             .setCategory(if (ilerleme) NotificationCompat.CATEGORY_PROGRESS else NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(acmaNiyeti(baglam, oturum, 0))
+            .addAction(0, if (ses) "Konuşmayı bitir" else "Konuş", konus)
             .addAction(0, "Atölye'den çık", cik)
         if (ilerleme) b.setProgress(0, 0, true)
         return b.build()
     }
 
-    fun goster(baglam: Context, kimlik: Int, baslik: String, metin: String, oturum: String?, onemli: Boolean) {
-        val bildirim = NotificationCompat.Builder(baglam, KANAL_OLAYLAR)
+    /** Onay bildirimindeki düğmenin niyeti: kararı OnayAlici üzerinden Dart'a iletir. */
+    private fun kararNiyeti(baglam: Context, kimlik: Int, oturum: String, rid: String, karar: String): PendingIntent {
+        val niyet = Intent(baglam, OnayAlici::class.java).apply {
+            action = "tr.com.lifeos.atolye.KARAR.$karar"
+            putExtra("kimlik", kimlik)
+            putExtra("oturum", oturum)
+            putExtra("rid", rid)
+            putExtra("karar", karar)
+        }
+        // istek kodu karar başına ayrı: aynı bildirimin üç düğmesi birbirini ezmesin
+        val istek = kimlik * 4 + listOf("izin", "hep", "red").indexOf(karar).coerceAtLeast(0)
+        return PendingIntent.getBroadcast(
+            baglam, istek, niyet,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    fun goster(
+        baglam: Context, kimlik: Int, baslik: String, metin: String, oturum: String?, onemli: Boolean,
+        rid: String? = null,
+    ) {
+        val b = NotificationCompat.Builder(baglam, KANAL_OLAYLAR)
             .setSmallIcon(R.drawable.ic_bildirim)
             .setContentTitle(baslik)
             .setContentText(metin)
@@ -90,7 +122,12 @@ object Bildirimler {
             .setPriority(if (onemli) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(if (onemli) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_STATUS)
             .setContentIntent(acmaNiyeti(baglam, oturum, kimlik))
-            .build()
+        if (rid != null && oturum != null) {
+            b.addAction(0, "İzin ver", kararNiyeti(baglam, kimlik, oturum, rid, "izin"))
+            b.addAction(0, "Bu oturumda hep", kararNiyeti(baglam, kimlik, oturum, rid, "hep"))
+            b.addAction(0, "Reddet", kararNiyeti(baglam, kimlik, oturum, rid, "red"))
+        }
+        val bildirim = b.build()
         try {
             NotificationManagerCompat.from(baglam).notify(kimlik, bildirim)
         } catch (_: SecurityException) {
@@ -99,6 +136,32 @@ object Bildirimler {
     }
 
     fun iptal(baglam: Context, kimlik: Int) = NotificationManagerCompat.from(baglam).cancel(kimlik)
+
+    /** Dart tarafına giden kanal (uygulama açıkken; motor yoksa null). */
+    @Volatile var kanal: io.flutter.plugin.common.MethodChannel? = null
+}
+
+/**
+ * Onay bildirimindeki "İzin ver / Bu oturumda hep / Reddet" düğmeleri. Karar
+ * uygulamanın açık bağlantısıyla köprüye gider; uygulama yoksa kullanıcıdan
+ * Atölye'yi açması istenir.
+ */
+class OnayAlici : android.content.BroadcastReceiver() {
+    override fun onReceive(baglam: Context, niyet: Intent) {
+        val kimlik = niyet.getIntExtra("kimlik", 0)
+        val oturum = niyet.getStringExtra("oturum") ?: return
+        val rid = niyet.getStringExtra("rid") ?: return
+        val karar = niyet.getStringExtra("karar") ?: return
+        Bildirimler.iptal(baglam, kimlik)
+        val kanal = Bildirimler.kanal
+        if (kanal == null) {
+            Bildirimler.goster(baglam, kimlik, "Onay iletilemedi", "Atölye kapalı; onaylamak için dokun.", oturum, true)
+            return
+        }
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            kanal.invokeMethod("karar", mapOf("oturum" to oturum, "rid" to rid, "karar" to karar))
+        }
+    }
 }
 
 /**
@@ -135,6 +198,7 @@ class AtolyeServisi : Service() {
             intent?.getStringExtra("metin") ?: "",
             intent?.getStringExtra("oturum"),
             intent?.getBooleanExtra("ilerleme", true) ?: true,
+            ses,
         )
         var tur = 0
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

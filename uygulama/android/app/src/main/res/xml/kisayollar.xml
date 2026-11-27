@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ana ekranda Atölye simgesine uzun basınca: doğrudan sesli konuşma. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="ses"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/kisayol_ses"
+        android:shortcutLongLabel="@string/kisayol_ses_uzun">
+        <intent
+            android:action="tr.com.lifeos.atolye.SES"
+            android:targetPackage="tr.com.lifeos.atolye"
+            android:targetClass="tr.com.lifeos.atolye.MainActivity" />
+    </shortcut>
+</shortcuts>

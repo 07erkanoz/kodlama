@@ -52,6 +52,9 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/kisayollar" />
             <!-- Paylaş menüsü: metin, bağlantı, resim ya da dosya Atölye'deki bir oturuma gider. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND"/>
@@ -72,6 +75,9 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Telefondaki yerel yapay zekâ ajanlarına (Termux köprüsü) bağlantıyı arka planda açık tutar; ajan onay isteyince ya da iş bitince bildirir." />
         </service>
+        <receiver
+            android:name=".OnayAlici"
+            android:exported="false" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.dosyalar"

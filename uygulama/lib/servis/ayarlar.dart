@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../model/istemler.dart';
+
 /// Uygulamanın kendi ayarları: köprü erişim anahtarı, port, kurulumun durumu.
 class Ayarlar {
   Ayarlar._(this._p);
@@ -25,6 +27,10 @@ class Ayarlar {
   }
 
   set token(String v) => _p.setString('token', v);
+
+  /// Yazma kutusundaki "/" hazır istemleri.
+  List<Istem> get istemler => istemleriCoz(_p.getString('istemler'));
+  set istemler(List<Istem> v) => _p.setString('istemler', istemleriYaz(v));
 
   int get port => _p.getInt('port') ?? 8765;
   set port(int v) => _p.setInt('port', v);
@@ -57,6 +63,9 @@ class Ayarlar {
 
   /// Yankı modu son seçimleri: yeni Yankı ve Asistan oturumları bunlarla
   /// başlar. İşi yapan 'claude' ya da 'codex'.
+  /// Sesli konuşmada bekleyen onay "onayla / hep onayla / reddet" diye verilebilir.
+  bool get sesleOnay => _p.getBool('sesleOnay') ?? true;
+  set sesleOnay(bool v) => _p.setBool('sesleOnay', v);
   bool get yanki => _p.getBool('yanki') ?? false;
   set yanki(bool v) => _p.setBool('yanki', v);
   String get yankiIsci => _p.getString('yankiIsci') ?? 'claude';

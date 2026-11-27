@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../model/istemler.dart';
+
 /// Mesaj yazma kutusu: üstte ekler, ortada geniş metin alanı, altta tek
 /// satırda ekle, seçim çipleri ve gönder/durdur. Çipler alt satıra taşmaz,
 /// sığmazsa kısalır. Fiziksel klavyesi olan cihazlarda (masaüstü, web)
@@ -25,7 +27,11 @@ class MesajKutusu extends StatefulWidget {
     this.otomatikOdak = false,
     this.enAzSatir = 2,
     this.icerikEklendi,
+    this.istemler = const [],
   });
+
+  /// "/" yazınca önerilen hazır istemler.
+  final List<Istem> istemler;
 
   /// Klavyeden (Gboard'un panosu, çıkartma, GIF) eklenen resim.
   final void Function(String ad, Uint8List veri)? icerikEklendi;
@@ -38,6 +44,7 @@ class MesajKutusu extends StatefulWidget {
   final List<String> ekler;
   final void Function(String)? ekKaldir;
   final bool ekYukleniyor;
+
   /// Araç satırının solundaki düğmeler (model seçici gibi); sığmazsa kısalır.
   final List<Widget> cipler;
 
@@ -103,134 +110,191 @@ class _MesajKutusuState extends State<MesajKutusu> {
     // model…) klavyeyi kapatmaz; dışına dokunmak kapatır.
     return TextFieldTapRegion(
       child: AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      decoration: BoxDecoration(
-        color: r.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: _odakta ? r.primary.withValues(alpha: .5) : r.outlineVariant,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(
-              alpha: r.brightness == Brightness.dark ? .25 : .05,
-            ),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: r.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: _odakta ? r.primary.withValues(alpha: .5) : r.outlineVariant,
           ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (widget.ekler.isNotEmpty || widget.ekYukleniyor)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final e in widget.ekler)
-                    InputChip(
-                      avatar: const Icon(Icons.attach_file, size: 14),
-                      label: Text(e.split('/').last),
-                      onDeleted: () => widget.ekKaldir?.call(e),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: r.brightness == Brightness.dark ? .25 : .05,
+              ),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (widget.ekler.isNotEmpty || widget.ekYukleniyor)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final e in widget.ekler)
+                      InputChip(
+                        avatar: const Icon(Icons.attach_file, size: 14),
+                        label: Text(e.split('/').last),
+                        onDeleted: () => widget.ekKaldir?.call(e),
+                      ),
+                    if (widget.ekYukleniyor)
+                      const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ..._oneriler(t),
+            TextField(
+              controller: widget.denetleyici,
+              focusNode: _odak,
+              autofocus: widget.otomatikOdak,
+              minLines: widget.enAzSatir,
+              maxLines: 12,
+              textInputAction: TextInputAction.newline,
+              onTapOutside: (_) => _odak.unfocus(),
+              contentInsertionConfiguration: widget.icerikEklendi == null
+                  ? null
+                  : ContentInsertionConfiguration(
+                      onContentInserted: (icerik) {
+                        final veri = icerik.data;
+                        if (veri == null || veri.isEmpty) return;
+                        final uzanti = icerik.mimeType.split('/').last;
+                        widget.icerikEklendi!(
+                          'klavye_${DateTime.now().millisecondsSinceEpoch}.$uzanti',
+                          veri,
+                        );
+                      },
                     ),
-                  if (widget.ekYukleniyor)
-                    const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+              style: t.textTheme.bodyLarge?.copyWith(
+                fontSize: 16,
+                height: 1.45,
+              ),
+              decoration: InputDecoration(
+                hintText: widget.ipucu,
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 0, 8, 8),
+              child: Row(
+                children: [
+                  if (widget.ekle != null)
+                    _Yuvarlak(
+                      ipucu: 'Dosya ekle',
+                      onTap: widget.ekle,
+                      child: Icon(
+                        Icons.add,
+                        size: 22,
+                        color: r.onSurfaceVariant,
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 4),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        for (final c in widget.cipler) Flexible(child: c),
+                      ],
+                    ),
+                  ),
+                  ...widget.sagda,
+                  const SizedBox(width: 4),
+                  if (widget.calisiyor && widget.durdur != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _Yuvarlak(
+                        ipucu: 'Durdur',
+                        onTap: widget.durdur,
+                        cerceve: r.outline.withValues(alpha: .5),
+                        zemin: r.surface,
+                        child: Icon(
+                          Icons.stop_rounded,
+                          size: 18,
+                          color: r.onSurface,
+                        ),
                       ),
                     ),
+                  _Yuvarlak(
+                    ipucu: _enterGonderir ? 'Gönder (Enter)' : 'Gönder',
+                    onTap: dolu && widget.gonderilebilir ? widget.gonder : null,
+                    zemin: dolu && widget.gonderilebilir
+                        ? r.onSurface
+                        : r.surfaceContainerHighest,
+                    child: Icon(
+                      Icons.arrow_upward_rounded,
+                      size: 20,
+                      color: dolu && widget.gonderilebilir
+                          ? r.surface
+                          : r.outline,
+                    ),
+                  ),
                 ],
               ),
             ),
-          TextField(
-            controller: widget.denetleyici,
-            focusNode: _odak,
-            autofocus: widget.otomatikOdak,
-            minLines: widget.enAzSatir,
-            maxLines: 12,
-            textInputAction: TextInputAction.newline,
-            onTapOutside: (_) => _odak.unfocus(),
-            contentInsertionConfiguration: widget.icerikEklendi == null
-                ? null
-                : ContentInsertionConfiguration(
-                    onContentInserted: (icerik) {
-                      final veri = icerik.data;
-                      if (veri == null || veri.isEmpty) return;
-                      final uzanti = icerik.mimeType.split('/').last;
-                      widget.icerikEklendi!(
-                        'klavye_${DateTime.now().millisecondsSinceEpoch}.$uzanti',
-                        veri,
-                      );
-                    },
-                  ),
-            style: t.textTheme.bodyLarge?.copyWith(fontSize: 16, height: 1.45),
-            decoration: InputDecoration(
-              hintText: widget.ipucu,
-              filled: false,
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 0, 8, 8),
-            child: Row(
-              children: [
-                if (widget.ekle != null)
-                  _Yuvarlak(
-                    ipucu: 'Dosya ekle',
-                    onTap: widget.ekle,
-                    child: Icon(Icons.add, size: 22, color: r.onSurfaceVariant),
-                  )
-                else
-                  const SizedBox(width: 4),
-                Expanded(
-                  child: Row(
-                    children: [
-                      for (final c in widget.cipler) Flexible(child: c),
-                    ],
-                  ),
-                ),
-                ...widget.sagda,
-                const SizedBox(width: 4),
-                if (widget.calisiyor && widget.durdur != null)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: _Yuvarlak(
-                      ipucu: 'Durdur',
-                      onTap: widget.durdur,
-                      cerceve: r.outline.withValues(alpha: .5),
-                      zemin: r.surface,
-                      child: Icon(Icons.stop_rounded, size: 18, color: r.onSurface),
-                    ),
-                  ),
-                _Yuvarlak(
-                  ipucu: _enterGonderir ? 'Gönder (Enter)' : 'Gönder',
-                  onTap: dolu && widget.gonderilebilir ? widget.gonder : null,
-                  zemin: dolu && widget.gonderilebilir
-                      ? r.onSurface
-                      : r.surfaceContainerHighest,
-                  child: Icon(
-                    Icons.arrow_upward_rounded,
-                    size: 20,
-                    color: dolu && widget.gonderilebilir ? r.surface : r.outline,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
     );
+  }
+}
+
+extension on _MesajKutusuState {
+  /// "/" ile başlayan yazıya uyan istemler; seçilince metin istemle değişir.
+  List<Widget> _oneriler(ThemeData t) {
+    final uyan = istemAra(widget.istemler, widget.denetleyici.text);
+    if (uyan.isEmpty) return const [];
+    return [
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 220),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.only(top: 6),
+          children: [
+            for (final i in uyan)
+              ListTile(
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                leading: Icon(
+                  Icons.bolt_rounded,
+                  size: 18,
+                  color: t.colorScheme.primary,
+                ),
+                title: Text('/${i.ad}'),
+                subtitle: Text(
+                  i.metin,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () {
+                  widget.denetleyici.value = TextEditingValue(
+                    text: i.metin,
+                    selection: TextSelection.collapsed(offset: i.metin.length),
+                  );
+                  _odak.requestFocus();
+                },
+              ),
+          ],
+        ),
+      ),
+      Divider(height: 1, color: t.colorScheme.outlineVariant),
+    ];
   }
 }
 
@@ -349,7 +413,10 @@ class SecimCipi<T> extends StatelessWidget {
                 etiket,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: t.textTheme.labelLarge?.copyWith(color: r.onSurface, fontSize: 13.5),
+                style: t.textTheme.labelLarge?.copyWith(
+                  color: r.onSurface,
+                  fontSize: 13.5,
+                ),
               ),
             ),
             const SizedBox(width: 2),
@@ -369,7 +436,12 @@ const calismaBicimleri = <(String, String, String, IconData)>[
     'Güvenli işleri kendisi onaylar, yalnız riskli olanları sorar',
     Icons.verified_user_outlined,
   ),
-  ('sor', 'Sor', 'Her değişiklik ve komut için onay', Icons.help_outline_rounded),
+  (
+    'sor',
+    'Sor',
+    'Her değişiklik ve komut için onay',
+    Icons.help_outline_rounded,
+  ),
   (
     'duzenle',
     'Düzenle',

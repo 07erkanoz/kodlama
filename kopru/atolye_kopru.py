@@ -28,6 +28,7 @@ import io
 import json
 import mimetypes
 import os
+import posixpath
 import re
 import secrets
 import shlex
@@ -51,10 +52,10 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.11.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.12.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan", "uzak_klasor", "kota_oku"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan", "uzak_klasor", "kota_oku", "uzak_dosya", "bildirim_onay", "zamanlanmis", "ara", "kullanim"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -415,11 +416,13 @@ def _sonuc(kod, out, err, ok_mesaj=""):
     return {"cikti": (out + err).strip()[-4000:] or ok_mesaj}
 
 
-async def git_durum(cwd: Path) -> dict:
-    kod, _, _ = await calistir(["git", "rev-parse", "--is-inside-work-tree"], cwd, 15)
+async def git_durum(cwd: Path | str, kos=None) -> dict:
+    """[kos] verilirse komutlar onunla (ör. SSH ile uzakta) çalışır."""
+    kos = kos or (lambda args, sure=120: calistir(args, cwd, sure))
+    kod, _, _ = await kos(["git", "rev-parse", "--is-inside-work-tree"], 15)
     if kod != 0:
         return {"repo": False}
-    _, ham, _ = await calistir(["git", "status", "--porcelain=v1", "-b", "-z", "--untracked-files=all"], cwd, 30)
+    _, ham, _ = await kos(["git", "status", "--porcelain=v1", "-b", "-z", "--untracked-files=all"], 30)
     girdiler = ham.split("\0")
     dal, ileri, geri, takip = "", 0, 0, None
     dosyalar = []
@@ -446,9 +449,10 @@ async def git_durum(cwd: Path) -> dict:
             i += 1  # yeniden adlandırmada eski yol ayrı girdidir
         tur = "yeni" if x == "?" else "silindi" if "D" in (x, y) else "eklendi" if x == "A" else \
             "ad" if x == "R" else "degisti"
-        dosyalar.append({"yol": yol, "tam": str(cwd / yol), "tur": tur, "hazir": x not in " ?"})
-    _, uzak, _ = await calistir(["git", "remote", "get-url", "origin"], cwd, 10)
-    _, gunluk, _ = await calistir(["git", "log", "-8", "--pretty=%h%x09%s%x09%cr%x09%an"], cwd, 15)
+        tam = str(cwd / yol) if isinstance(cwd, Path) else posixpath.join(cwd, yol)
+        dosyalar.append({"yol": yol, "tam": tam, "tur": tur, "hazir": x not in " ?"})
+    _, uzak, _ = await kos(["git", "remote", "get-url", "origin"], 10)
+    _, gunluk, _ = await kos(["git", "log", "-8", "--pretty=%h%x09%s%x09%cr%x09%an"], 15)
     commitler = []
     for satir in gunluk.splitlines():
         p = satir.split("\t")
@@ -458,13 +462,14 @@ async def git_durum(cwd: Path) -> dict:
             "uzak": uzak.strip() or None, "dosyalar": dosyalar, "commitler": commitler}
 
 
-async def git_fark(cwd: Path, yol: str) -> dict:
-    kod, out, _ = await calistir(["git", "diff", "HEAD", "--", yol], cwd, 30)
+async def git_fark(cwd: Path | str, yol: str, kos=None) -> dict:
+    kos = kos or (lambda args, sure=120: calistir(args, cwd, sure))
+    kod, out, _ = await kos(["git", "diff", "HEAD", "--", yol], 30)
     if kod != 0 or not out.strip():
-        _, out, _ = await calistir(["git", "diff", "--cached", "--", yol], cwd, 30)
+        _, out, _ = await kos(["git", "diff", "--cached", "--", yol], 30)
     if not out.strip():
         # izlenmeyen dosya: tamamı eklenmiş gibi
-        _, out, _ = await calistir(["git", "diff", "--no-index", "--", "/dev/null", yol], cwd, 30)
+        _, out, _ = await kos(["git", "diff", "--no-index", "--", "/dev/null", yol], 30)
     return {"fark": out[:400_000]}
 
 
@@ -883,6 +888,11 @@ def izin_ozeti(izinler: dict) -> str:
     return ", ".join(parca) or "ek izin"
 
 
+def _ara_norm(s: str) -> str:
+    """Aramada büyük/küçük harf farkı yok; Türkçe i/ı/İ/I aynı sayılır (uzunluk korunur)."""
+    return s.replace("İ", "i").replace("I", "i").replace("ı", "i").lower()
+
+
 def ssh_hedef(s: dict) -> list[str]:
     return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30",
@@ -930,6 +940,133 @@ async def uzak_listele(s: dict, klasor: str, yeni: str | None = None) -> dict:
             klasorler.append(satir)
     klasorler.sort(key=lambda a: (a.startswith("."), a.lower()))
     return {"yol": yol, "git": git, "klasorler": klasorler[:2000]}
+
+
+# Uzak oturumun dosya paneli: klasör SSH ile gezilir, açılan dosya bu cihazdaki
+# önbelleğe indirilir (önizleyiciler yerel dosya okur); düzenleyiciden kaydedilen
+# önbellek dosyası sunucuya geri yazılır.
+UZAK_ONBELLEK_ADI = ".atolye/uzak"
+UZAK_INDIRME_SINIRI = 60 * 1024 * 1024
+
+_UZAK_GEZ_PY = (
+    "import os,sys\n"
+    "for e in os.scandir('.'):\n"
+    "  try:\n"
+    "    s=e.stat(); n=e.name.replace('\\t',' ').replace('\\n',' ')\n"
+    "    print('d' if e.is_dir() else 'f', s.st_size, s.st_mtime, n, sep='\\t')\n"
+    "  except OSError: pass\n"
+)
+
+
+async def uzak_gez(s: dict, klasor: str) -> dict:
+    """Uzak klasörün içeriği, yerel `listele` ile aynı biçimde."""
+    klasor = (klasor or "~").strip() or "~"
+    ic = (f"cd {_uzak_hedef(klasor)} || exit 3; echo \"ATOLYE_YOL=$PWD\"; "
+          f"if command -v python3 >/dev/null 2>&1; then python3 -c {shlex.quote(_UZAK_GEZ_PY)}; "
+          "else find . -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n' | sed 's/^\\([^d]\\)/f/'; fi")
+    kod, out, err = await calistir(ssh_hedef(s) + ["--", shlex.join(["sh", "-c", ic])], sure=30)
+    if kod == 3:
+        raise RuntimeError(f"{klasor}: klasör yok ya da açılamıyor")
+    if "ATOLYE_YOL=" not in out:
+        raise RuntimeError(kisa(err.strip(), 400) or "bağlanılamadı")
+    yol, ogeler = "", []
+    for satir in out.splitlines():
+        if satir.startswith("ATOLYE_YOL="):
+            yol = satir[len("ATOLYE_YOL="):]
+            continue
+        p = satir.split("\t", 3)
+        if len(p) != 4 or not yol:
+            continue
+        try:
+            ogeler.append({"ad": p[3], "yol": posixpath.join(yol, p[3]), "klasor": p[0] == "d",
+                           "boyut": int(p[1]), "degisme": float(p[2])})
+        except ValueError:
+            continue
+    ogeler.sort(key=lambda x: (not x["klasor"], x["ad"].lower()))
+    return {"yol": yol, "ust": posixpath.dirname(yol) if yol not in ("/", "") else None,
+            "ogeler": ogeler[:3000]}
+
+
+async def uzak_stat(s: dict, yol: str) -> tuple[int, float] | None:
+    """Uzak dosyanın boyutu ve değişme zamanı; yoksa None."""
+    kod, out, _ = await calistir(ssh_hedef(s) + ["--", f"stat -c '%s %Y' -- {_uzak_hedef(yol)}"], sure=20)
+    if kod != 0:
+        return None
+    try:
+        b, m = out.split()
+        return int(b), float(m)
+    except ValueError:
+        return None
+
+
+def uzak_onbellek_kok() -> Path:
+    return KOK / UZAK_ONBELLEK_ADI
+
+
+def uzak_onbellek_yolu(sunucu: str, yol: str) -> Path:
+    """Uzak dosyanın bu cihazdaki önbellek yolu (sunucu/yol yapısıyla)."""
+    if not re.match(r"^[\w.\-]+$", sunucu or ""):
+        raise ValueError("geçersiz sunucu adı")
+    parca = [x for x in yol.split("/") if x and x != "."]
+    if ".." in parca or not parca:
+        raise ValueError("geçersiz uzak yol")
+    return guvenli_yol(uzak_onbellek_kok() / sunucu / "/".join(parca))
+
+
+def uzak_onbellekten(yol: Path) -> tuple[str, str] | None:
+    """Önbellekteki dosya hangi sunucunun hangi dosyası? Önbellekte değilse None."""
+    try:
+        goreli_ = yol.resolve().relative_to(uzak_onbellek_kok().resolve())
+    except ValueError:
+        return None
+    parca = goreli_.parts
+    if len(parca) < 2:
+        return None
+    sunucu, ic = parca[0], "/".join(parca[1:])
+    return sunucu, ic if ic.startswith("~") else "/" + ic
+
+
+async def uzak_indir(s: dict, sunucu: str, yol: str) -> dict:
+    """Uzak dosyayı önbelleğe indirir; yerel dosyanın değişme zamanı uzaktakiyle
+    aynı yapılır (düzenleyicinin çakışma denetimi bunu kullanır)."""
+    st = await uzak_stat(s, yol)
+    if st is None:
+        raise FileNotFoundError(f"{yol}: uzak dosya bulunamadı")
+    if st[0] > UZAK_INDIRME_SINIRI:
+        raise ValueError(f"dosya önizleme için çok büyük ({st[0] // (1024 * 1024)} MB)")
+    hedef = uzak_onbellek_yolu(sunucu, yol)
+    hedef.parent.mkdir(parents=True, exist_ok=True)
+    gecici = hedef.with_name(f".{hedef.name}.atolye-indir")
+    with open(gecici, "wb") as f:
+        p = await asyncio.create_subprocess_exec(
+            *ssh_hedef(s), "--", f"cat -- {_uzak_hedef(yol)}",
+            stdin=asyncio.subprocess.DEVNULL, stdout=f, stderr=asyncio.subprocess.PIPE)
+        try:
+            _, err = await asyncio.wait_for(p.communicate(), 600)
+        except asyncio.TimeoutError:
+            p.kill()
+            err = b"zaman asimi"
+    if p.returncode != 0:
+        gecici.unlink(missing_ok=True)
+        raise RuntimeError(kisa(err.decode(errors="replace").strip(), 400) or "indirilemedi")
+    os.replace(gecici, hedef)
+    os.utime(hedef, (st[1], st[1]))
+    return {"yol": str(hedef), "uzak": yol, "boyut": st[0]}
+
+
+async def uzak_geri_yaz(s: dict, yerel: Path, yol: str, once: float | None, zorla: bool) -> float:
+    """Önbellekteki dosyayı sunucuya yazar; uzaktaki dosya okunduktan sonra
+    değiştiyse zorlanmadıkça yazmaz. Yeni değişme zamanını döndürür."""
+    if once is not None and not zorla:
+        st = await uzak_stat(s, yol)
+        if st is not None and abs(st[1] - float(once)) > 1:
+            raise RuntimeError("degisti: dosya sunucuda sen düzenlerken değişti")
+    kod, _, err = await calistir(ssh_hedef(s) + ["--", f"cat > {_uzak_hedef(yol)}"], sure=300,
+                                 girdi=yerel.read_bytes())
+    if kod != 0:
+        raise RuntimeError(kisa(err.strip(), 400) or "sunucuya yazılamadı")
+    st = await uzak_stat(s, yol)
+    return st[1] if st else time.time()
 
 
 async def ssh_anahtari_hazirla() -> str:
@@ -1014,6 +1151,8 @@ class Oturum:
         self.cihaz_mcp: dict[str, list[str]] = veri.get("cihaz_mcp") or {}  # ad → o cihazdaki komut
         self.olusturma: float = veri.get("olusturma", simdi())
         self.guncelleme: float = veri.get("guncelleme", self.olusturma)
+        # Ajanın son yanıtının başı: oturum listesinde "ne yapıldı" özeti olarak görünür.
+        self.son_metin: str = veri.get("son_metin") or ""
         self.durum = "bos"  # bos | calisiyor
         self.surec: asyncio.subprocess.Process | None = None
         self.onaylar: dict[str, dict] = {}  # bekleyen onaylar: rid → olay
@@ -1032,7 +1171,7 @@ class Oturum:
             "claude_model": self.claude_model, "claude_effort": self.claude_effort, "isci": self.isci,
             "yazili": self.yazili, "yazili_model": self.yazili_model, "yazili_effort": self.yazili_effort,
             "durum_notu": self.durum_notu,
-            "cihaz": self.cihaz, "cihaz_mcp": self.cihaz_mcp,
+            "cihaz": self.cihaz, "cihaz_mcp": self.cihaz_mcp, "son_metin": self.son_metin,
         }
 
     def ozet(self) -> dict:
@@ -1052,6 +1191,8 @@ class Oturum:
         olay = {"oturum": self.id, "zaman": simdi(), **olay}
         if kaydet:
             self.k.kayda_yaz(self.id, olay)
+            if olay.get("ev") == "metin" and (olay.get("metin") or "").strip():
+                self.son_metin = kisa(" ".join(olay["metin"].split()), 240)
         self.k.yayinla(olay)
 
     def durum_ver(self, durum: str):
@@ -1333,8 +1474,11 @@ class ClaudeOturum(Oturum):
             self._dusAcik.clear()
             self.tur_sonu()
             hata = (ev.get("result") or ev.get("subtype") or "hata") if ev.get("is_error") else None
+            u = ev.get("usage") or {}
+            jeton = sum(int(u.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens",
+                                                     "cache_read_input_tokens")) or None
             self.yay({"ev": "bitti", "hata": hata, "maliyet": ev.get("total_cost_usd"),
-                      "sure": ev.get("duration_ms"),
+                      "sure": ev.get("duration_ms"), "jeton": jeton,
                       "reddedilen": [d.get("tool_name") for d in ev.get("permission_denials") or []]})
             self.guncelleme = simdi()
             self.durum_ver("bos")
@@ -1526,8 +1670,7 @@ class ClaudeYardimci(ClaudeOturum):
     def yay(self, olay: dict, kaydet: bool = True):
         ev = olay.get("ev")
         if ev == "onay":
-            self._sese_bildir(f"Claude onay bekliyor: {olay.get('arac')} — {kisa(olay.get('ozet') or '', 160)}. "
-                              "Kullanıcı ekrandan onaylamalı.")
+            self.ana.onayi_sese(olay, "Claude")
         elif ev == "arac":
             self._sese_bildir(f"Claude şimdi: {olay.get('ad')} {kisa(olay.get('ozet') or '', 100)}", hep=True)
         if ev == "metin":
@@ -1577,6 +1720,47 @@ class CodexOturum(Oturum):
         self.yardimci: ClaudeYardimci | None = None  # Asistan'ın Claude'u
         self.isci_notu = False
         self._geri_al = False  # yazılı turun modeli bitince ses ajanınınkine dön
+        self.sesle_onay = False  # sesli konuşmada "onayla / reddet" sözleri bekleyen onaya uygulanır
+        self._jeton_toplam: int | None = None  # thread'in toplam jetonu (Codex bildirir)
+        self._jeton_bas: int | None = None  # tur başındaki toplam
+        self._tur_bas_zaman = 0.0
+
+    def yay(self, olay: dict, kaydet: bool = True):
+        super().yay(olay, kaydet)
+        if olay.get("ev") == "onay":
+            self.onayi_sese(olay, "Codex")
+
+    def onayi_sese(self, olay: dict, kim: str):
+        """Ses açıkken bekleyen onayı sese bildir: sesle onay açıksa kullanıcıya sorulsun."""
+        if not self.ses:
+            return
+        ne = f"{olay.get('arac')} — {kisa(olay.get('ozet') or '', 160)}"
+        if self.sesle_onay:
+            metin = (f"[Atölye: {kim} onay bekliyor: {ne}. Kullanıcıya kısaca ne için olduğunu söyle ve "
+                     "onaylıyor musun diye sor; onayla, hep onayla ya da reddet diyebilir.]")
+        elif self.durum_notu != "kapali":
+            metin = f"[Atölye durum bilgisi, kullanıcıya kısaca söyle] {kim} onay bekliyor: {ne}. Kullanıcı ekrandan onaylamalı."
+        else:
+            return
+        asyncio.create_task(self.ses_metin(metin))
+
+    def sesli_onay(self, metin: str):
+        """Kullanıcının sesli sözü bekleyen ilk onaya karar mı? Öyleyse uygula."""
+        bekleyen = self.bekleyen_onaylar()
+        if not self.sesle_onay or not bekleyen:
+            return
+        karar = sesli_karar(metin)
+        if not karar:
+            return
+        rid = bekleyen[0]
+        istek = self.onaylar.get(rid) or (self.yardimci.onaylar.get(rid) if self.yardimci else None) or {}
+        ad = {"izin": "izin verildi", "hep": "bu oturumda hep izin verildi", "red": "reddedildi"}[karar]
+        asyncio.create_task(self.onayla(rid, karar))
+        self.yay({"ev": "uyari", "bilgi": True, "metin": f"Sesle {ad}: {istek.get('arac') or 'onay'}"})
+        kalan = len(bekleyen) - 1
+        asyncio.create_task(self.ses_metin(
+            f"[Atölye: kullanıcının sesli kararı uygulandı, {ad}. Bunu kısaca doğrula"
+            + (f"; {kalan} onay daha bekliyor." if kalan else ".") + " İşi Codex'e devretme.]"))
 
     async def _rpc(self, yontem, params=None, bildirim=False):
         m = {"jsonrpc": "2.0", "method": yontem}
@@ -1708,10 +1892,11 @@ class CodexOturum(Oturum):
     # proje klasöründe çalışır, araçlar ve onaylar sohbette her zamanki gibi görünür.
 
     async def ses_baslat(self, sdp: str, ses: str | None = None, dil: str | None = None,
-                         model: str | None = None):
+                         model: str | None = None, sesle_onay: bool = False):
         if not sdp:
             raise ValueError("SDP teklifi yok")
         await self._hazirla()
+        self.sesle_onay = sesle_onay
         if self.ses:
             try:
                 await self._rpc("thread/realtime/stop", {"threadId": self.sid})
@@ -1721,7 +1906,8 @@ class CodexOturum(Oturum):
                "transport": {"type": "webrtc", "sdp": sdp},
                "codexResponseHandoffMode": "bemTags", "includeStartupContext": True,
                "clientManagedHandoffs": False,
-               "initialItems": [{"role": "developer", "text": ses_tanitimi(dil, self.asistan, self.yanki)}]}
+               "initialItems": [{"role": "developer",
+                                 "text": ses_tanitimi(dil, self.asistan, self.yanki, sesle_onay)}]}
         if ses:
             prm["voice"] = ses
         if model:
@@ -2059,6 +2245,12 @@ class CodexOturum(Oturum):
         elif yontem == "serverRequest/resolved":
             r = prm.get("requestId")
             self.onay_kapandi(f"cx{r}")
+        elif yontem == "thread/tokenUsage/updated":
+            tu = prm.get("tokenUsage") or {}
+            toplam = int((tu.get("total") or {}).get("totalTokens") or 0)
+            if self._jeton_bas is None:
+                self._jeton_bas = toplam - int((tu.get("last") or {}).get("totalTokens") or 0)
+            self._jeton_toplam = toplam
         elif yontem == "account/rateLimits/updated":
             pencereler = codex_kota_pencereleri(prm.get("rateLimits") or {})
             if pencereler:
@@ -2082,6 +2274,8 @@ class CodexOturum(Oturum):
                 self.yay({"ev": "ses", "tur": "bitti", "rol": rol, "metin": metin}, kaydet=False)
                 if metin and rol == "user" and self.asistan and self.baslik == "Asistan":
                     self.k.baslik_ver(self, metin)
+                if metin and rol == "user":
+                    self.sesli_onay(metin)
                 if metin:  # konuşma sohbet geçmişine de yazılsın
                     self.yay({"ev": "kullanici", "metin": metin, "ekler": [], "sesli": True} if rol == "user"
                              else {"ev": "metin", "anahtar": f"ses{simdi()}", "metin": metin, "sesli": True})
@@ -2106,6 +2300,8 @@ class CodexOturum(Oturum):
             t = prm.get("turn") or {}
             if t.get("id"):
                 self.tur = t["id"]
+            self._jeton_bas = self._jeton_toplam
+            self._tur_bas_zaman = simdi()
             if self.durum != "calisiyor":
                 self.tur_basi()
                 self.durum_ver("calisiyor")
@@ -2122,7 +2318,11 @@ class CodexOturum(Oturum):
                 geri = {"threadId": self.sid, "model": self.model, "effort": self.effort}
                 asyncio.create_task(self._ayar_geri(geri))
             self.tur_sonu()
-            self.yay({"ev": "bitti", "hata": hata})
+            jeton = (self._jeton_toplam - self._jeton_bas
+                     if self._jeton_toplam is not None and self._jeton_bas is not None else None)
+            self._jeton_bas = self._jeton_toplam
+            sure = int((simdi() - self._tur_bas_zaman) * 1000) if self._tur_bas_zaman else None
+            self.yay({"ev": "bitti", "hata": hata, "jeton": jeton or None, "sure": sure})
             self.guncelleme = simdi()
             self.durum_ver("bos")
 
@@ -2136,7 +2336,41 @@ SES_DILLERI = {
 }
 
 
-def ses_tanitimi(dil: str | None, asistan: bool = False, yanki: bool = False) -> str:
+_RED = ("reddet", "onaylama", "izin verme", "iptal", "vazgeç", "yapma", "etme", "durdur", "hayır", "istemiyorum",
+        "deny", "cancel", "reject")
+_IZIN = ("onayla", "onaylıyorum", "onay ver", "izin ver", "kabul ediyorum", "kabul et", "approve", "allow")
+_KISA_EVET = ("evet", "tamam", "olur", "yap", "devam", "yes", "ok", "okay")
+_KISA_HAYIR = ("hayır", "yok", "no")
+
+
+def sesli_karar(metin: str) -> str | None:
+    """Kullanıcının sesli sözünden onay kararı: "izin", "hep", "red" ya da None.
+    Açık sözler her uzunlukta, "evet/hayır" gibi kısa cevaplar yalnız en çok üç
+    kelimelik bir söz olarak sayılır (uzun cümlenin içindeki "evet" sayılmaz)."""
+    t = metin.replace("I", "ı").replace("İ", "i").lower()
+    t = re.sub(r"[^\wçğıöşü ]+", " ", t)
+    kelimeler = t.split()
+    if not kelimeler:
+        return None
+    t = " " + " ".join(kelimeler) + " "
+    # "onaylama" içinde "onayla" geçer: önce ret sözlerine bak
+    if any(f" {s}" in t for s in _RED) or (len(kelimeler) <= 3 and set(kelimeler) & set(_KISA_HAYIR)):
+        return "red"
+    hep = any(s in t for s in (" hep ", " her zaman", " oturum boyunca", " hepsine", " hepsini", " always "))
+    if any(f" {s}" in t for s in _IZIN) or (len(kelimeler) <= 3 and set(kelimeler) & set(_KISA_EVET)):
+        return "hep" if hep else "izin"
+    return None
+
+
+def ses_tanitimi(dil: str | None, asistan: bool = False, yanki: bool = False, sesle_onay: bool = False) -> str:
+    return _ses_tanitimi(dil, asistan, yanki) + (
+        " Atölye sana \"onay bekliyor\" diye bildirdiğinde kullanıcıya kısaca ne için onay istendiğini söyle "
+        "ve \"onaylıyor musun?\" diye sor. Kullanıcının onayla, hep onayla ya da reddet cevabını Atölye kendisi "
+        "uygular; bu cevabı Codex'e iş olarak devretme, yalnız kısaca karşılık ver."
+        if sesle_onay else "")
+
+
+def _ses_tanitimi(dil: str | None, asistan: bool = False, yanki: bool = False) -> str:
     if asistan:
         return (
             "Atölye uygulamasında kullanıcının genel asistanı olarak sesli konuşuyorsun; bir projede değilsin. "
@@ -2213,6 +2447,95 @@ class Kopru:
         except (OSError, ValueError):
             pass
 
+    # --- zamanlanmış işler
+    #
+    # Belirli saatte (seçilen günlerde) yeni bir oturum açıp istemi gönderir.
+    # Sonuç her zamanki gibi sohbete ve bildirime düşer. Kayıt: EV/zamanlanmis.json
+    # [{id, ad, saat "SS:DD", gunler [0=Pzt..6=Paz], ajan, cwd, sunucu, uzak_klasor,
+    #   mod, metin, acik, son}]
+
+    def zamanlanmislar(self) -> list[dict]:
+        try:
+            return json.loads((EV / "zamanlanmis.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+
+    def _zaman_yaz(self, liste: list[dict]):
+        f = EV / "zamanlanmis.json"
+        gecici = f.with_suffix(".tmp")
+        gecici.write_text(json.dumps(liste, ensure_ascii=False, indent=1), encoding="utf-8")
+        gecici.replace(f)
+
+    def zaman_kaydet(self, is_: dict) -> dict:
+        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", is_.get("saat") or ""):
+            raise ValueError("saat SS:DD biçiminde olmalı")
+        if is_.get("ajan") not in SURUCULER:
+            raise ValueError("bilinmeyen ajan")
+        if not (is_.get("metin") or "").strip():
+            raise ValueError("istem boş")
+        gunler = sorted({int(g) for g in is_.get("gunler") or range(7) if 0 <= int(g) <= 6})
+        if not is_.get("sunucu"):
+            guvenli_yol(is_.get("cwd") or KOK)
+        temiz = {"id": is_.get("id") or uuid.uuid4().hex[:10], "ad": (is_.get("ad") or "").strip() or "İş",
+                 "saat": is_["saat"], "gunler": gunler or list(range(7)), "ajan": is_["ajan"],
+                 "cwd": is_.get("cwd") or str(KOK), "sunucu": is_.get("sunucu") or None,
+                 "uzak_klasor": is_.get("uzak_klasor") or None, "mod": is_.get("mod") or "otomatik",
+                 "metin": is_["metin"].strip(), "acik": is_.get("acik", True) is not False}
+        liste = self.zamanlanmislar()
+        eski = next((x for x in liste if x.get("id") == temiz["id"]), None)
+        # Bugünün vakti geçtiyse kaydedince hemen çalışmasın: ilk çalışma bir sonraki vakitte.
+        sa, dk = (int(x) for x in temiz["saat"].split(":"))
+        t = time.localtime()
+        if t.tm_hour * 60 + t.tm_min > sa * 60 + dk:
+            temiz["son"] = time.strftime("%Y-%m-%d ", t) + temiz["saat"]
+        elif eski:
+            temiz["son"] = eski.get("son")
+        if eski:
+            liste[liste.index(eski)] = temiz
+        else:
+            liste.append(temiz)
+        self._zaman_yaz(liste)
+        return temiz
+
+    async def zaman_calistir(self, is_: dict) -> str:
+        """İşi şimdi çalıştır: yeni oturum aç, istemi gönder. Oturum kimliğini döndürür."""
+        r = await self.istek(None, {"op": "oturum_ac", "ajan": is_["ajan"], "cwd": is_.get("cwd"),
+                                    "sunucu": is_.get("sunucu"), "uzak_klasor": is_.get("uzak_klasor"),
+                                    "mod": is_.get("mod") or "otomatik",
+                                    "baslik": f"⏰ {is_.get('ad') or 'Zamanlanmış iş'}"})
+        oid = r["oturum"]["id"]
+        self.yayinla({"ev": "oturum", "oturum": oid, "ozet": r["oturum"], "yeni": True})
+        o = self.oturumlar[oid]
+        await o.gonder(is_["metin"], [])
+        return oid
+
+    async def zamanlayici(self):
+        """Dakikada bir bakar; vakti gelen açık işleri çalıştırır (günde bir kez)."""
+        while True:
+            await asyncio.sleep(30 - time.time() % 30)
+            simdi_ = time.localtime()
+            dakika = simdi_.tm_hour * 60 + simdi_.tm_min
+            liste = self.zamanlanmislar()
+            degisti = False
+            for is_ in liste:
+                try:
+                    sa, dk = (int(x) for x in is_.get("saat", "").split(":"))
+                except ValueError:
+                    continue
+                # Telefon uyurken köprü o dakikayı kaçırabilir: 30 dakikaya kadar geç de olsa çalışır.
+                damga = time.strftime("%Y-%m-%d ", simdi_) + is_["saat"]
+                if (not is_.get("acik", True) or not 0 <= dakika - (sa * 60 + dk) < 30
+                        or simdi_.tm_wday not in (is_.get("gunler") or range(7)) or is_.get("son") == damga):
+                    continue
+                is_["son"] = damga
+                degisti = True
+                try:
+                    await self.zaman_calistir(is_)
+                except Exception as e:
+                    self.yayinla({"ev": "uyari", "metin": f"Zamanlanmış iş çalıştırılamadı ({is_.get('ad')}): {e}"})
+            if degisti:
+                self._zaman_yaz(liste)
+
     def oturumlari_kaydet(self):
         f = EV / "oturumlar.json"
         gecici = f.with_suffix(".tmp")
@@ -2222,6 +2545,87 @@ class Kopru:
     def kayda_yaz(self, oid: str, olay: dict):
         with open(EV / "kayit" / f"{oid}.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(olay, ensure_ascii=False) + "\n")
+
+    def kullanim(self, gun: int = 30) -> dict:
+        """Son [gun] günün kullanımı: gün ve ajan başına tur, süre, jeton, maliyet
+        (oturum kayıtlarındaki "bitti" olaylarından) ve kota geçmişi."""
+        sinir = time.time() - gun * 86400
+        gunler: dict[str, dict] = {}
+        for o in self.oturumlar.values():
+            if o.guncelleme < sinir:
+                continue
+            try:
+                satirlar = (EV / "kayit" / f"{o.id}.jsonl").read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for satir in satirlar:
+                if '"bitti"' not in satir:
+                    continue
+                try:
+                    e = json.loads(satir)
+                except ValueError:
+                    continue
+                z = e.get("zaman") or 0
+                if e.get("ev") != "bitti" or z < sinir:
+                    continue
+                ajan = e.get("kaynak") or o.ajan
+                g = time.strftime("%Y-%m-%d", time.localtime(z))
+                a = gunler.setdefault(g, {}).setdefault(ajan, {"tur": 0, "maliyet": 0.0, "jeton": 0, "sure": 0})
+                a["tur"] += 1
+                a["maliyet"] += float(e.get("maliyet") or 0)
+                a["jeton"] += int(e.get("jeton") or 0)
+                a["sure"] += int(e.get("sure") or 0)
+        kota = []
+        try:
+            for satir in (EV / "kota_gecmisi.jsonl").read_text(encoding="utf-8").splitlines()[-3000:]:
+                try:
+                    k = json.loads(satir)
+                except ValueError:
+                    continue
+                if k.get("zaman", 0) >= sinir:
+                    kota.append(k)
+        except OSError:
+            pass
+        return {"gunler": [{"gun": g, **v} for g, v in sorted(gunler.items())], "kota": kota,
+                "kotalar": self.kotalar}
+
+    def ara(self, sorgu: str, en_cok: int = 60) -> list[dict]:
+        """Bütün oturumların kayıtlarında (kullanıcı mesajları ve ajan yanıtları)
+        metin arar; en yeni oturumlar önce, oturum başına en çok 3 sonuç."""
+        q = _ara_norm(sorgu).strip()
+        if len(q) < 2:
+            return []
+        out = []
+        for o in sorted(self.oturumlar.values(), key=lambda x: -x.guncelleme):
+            try:
+                satirlar = (EV / "kayit" / f"{o.id}.jsonl").read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            bulunan = 0
+            for satir in reversed(satirlar):
+                if q not in _ara_norm(satir):  # hızlı ön eleme
+                    continue
+                try:
+                    olay = json.loads(satir)
+                except ValueError:
+                    continue
+                if olay.get("ev") not in ("kullanici", "metin"):
+                    continue
+                metin = " ".join((olay.get("metin") or "").split())
+                i = _ara_norm(metin).find(q)
+                if i < 0:
+                    continue
+                bas = max(0, i - 60)
+                out.append({"oturum": o.id, "baslik": o.baslik, "ajan": o.ajan, "ev": olay["ev"],
+                            "zaman": olay.get("zaman"),
+                            "parca": ("…" if bas else "") + metin[bas:i + len(q) + 100],
+                            "konum": i - bas + (1 if bas else 0)})
+                bulunan += 1
+                if bulunan >= 3:
+                    break
+            if len(out) >= en_cok:
+                break
+        return out
 
     def gecmis(self, oid: str, son: int = 2000) -> list[dict]:
         try:
@@ -2258,9 +2662,16 @@ class Kopru:
     def kota_ver(self, ajan, pencereler):
         for w in pencereler:
             w.setdefault("okundu", int(time.time()))
+        onceki = self.kotalar.get(ajan)
         self.kotalar[ajan] = pencereler
         try:
             (EV / "kotalar.json").write_text(json.dumps(self.kotalar, ensure_ascii=False))
+            # Kullanım ekranındaki eğri için: yalnız değer değişince bir satır
+            if [w.get("kullanim") for w in onceki or []] != [w.get("kullanim") for w in pencereler]:
+                with open(EV / "kota_gecmisi.jsonl", "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"zaman": int(time.time()), "ajan": ajan,
+                                        "pencereler": [{"ad": w.get("ad"), "kullanim": w.get("kullanim")}
+                                                       for w in pencereler]}, ensure_ascii=False) + "\n")
         except OSError:
             pass
         self.yayinla({"ev": "kota", "ajan": ajan, "pencereler": pencereler})
@@ -2639,6 +3050,41 @@ class Kopru:
             out.append({"ad": ad, "kurulu": bool(yol), "surum": surum, "giris": giris_var(ad)})
         return out
 
+    def _sunucu(self, ad: str | None) -> dict:
+        s = self.sunucular().get(ad or "")
+        if not s:
+            raise ValueError(f"sunucu bulunamadı: {ad}")
+        return s
+
+    async def uzak_git(self, op: str, m: dict) -> dict:
+        s = self._sunucu(m.get("sunucu"))
+        cwd = m.get("cwd") or "~"
+
+        async def kos(args, sure=120):
+            return await calistir(uzak_komut(s, cwd, args), sure=sure)
+        if op == "git_durum":
+            return await git_durum(cwd, kos)
+        if op == "git_fark":
+            return await git_fark(cwd, m["yol"], kos)
+        if op == "git_init":
+            return _sonuc(*await kos(["git", "init", "-b", "main"]))
+        if op == "git_commit":
+            mesaj = (m.get("mesaj") or "").strip()
+            if not mesaj:
+                raise ValueError("commit mesajı boş")
+            kod, out, err = await kos(["git", "add", "-A", "--", *(m.get("yollar") or ["."])])
+            if kod != 0:
+                raise RuntimeError(err.strip())
+            return _sonuc(*await kos(["git", "commit", "-m", mesaj]))
+        if op == "git_push":
+            kod, out, err = await kos(["git", "push"], 300)
+            if kod != 0 and "no upstream" in (err + out):
+                kod, out, err = await kos(["git", "push", "-u", "origin", "HEAD"], 300)
+            return _sonuc(kod, out, err, "gönderildi")
+        if op == "git_pull":
+            return _sonuc(*await kos(["git", "pull", "--ff-only"], 300), "güncel")
+        raise ValueError(f"bilinmeyen işlem: {op}")
+
     def sunucular(self) -> dict[str, dict]:
         try:
             return {s["ad"]: s for s in json.loads((EV / "sunucular.json").read_text())}
@@ -2767,6 +3213,22 @@ class Kopru:
             self.oturumlar[o.id] = o
             self.oturumlari_kaydet()
             return {"oturum": o.ozet()}
+        if op == "kullanim":
+            return self.kullanim(int(m.get("gun") or 30))
+        if op == "ara":
+            return {"sonuclar": self.ara(m.get("sorgu") or "")}
+        if op == "zaman_liste":
+            return {"isler": self.zamanlanmislar()}
+        if op == "zaman_kaydet":
+            return {"is": self.zaman_kaydet(m.get("is") or {})}
+        if op == "zaman_sil":
+            self._zaman_yaz([x for x in self.zamanlanmislar() if x.get("id") != m.get("id")])
+            return {}
+        if op == "zaman_calistir":
+            is_ = next((x for x in self.zamanlanmislar() if x.get("id") == m.get("id")), None)
+            if not is_:
+                raise ValueError("iş bulunamadı")
+            return {"oturum": await self.zaman_calistir(is_)}
         if op == "oturum_sil":
             o = self.oturumlar.pop(m.get("oturum"), None)
             if o:
@@ -2842,7 +3304,7 @@ class Kopru:
                 raise ValueError("sesli konuşma yalnızca Codex oturumlarında var")
             if op == "ses_baslat":
                 await o.ses_baslat(m.get("sdp") or "", m.get("ses") or None, m.get("dil"),
-                                   (m.get("model") or "").strip() or None)
+                                   (m.get("model") or "").strip() or None, bool(m.get("sesle_onay")))
             elif op == "ses_metin":
                 await o.ses_metin((m.get("metin") or "").strip())
             elif op == "ses_bitir":
@@ -2900,7 +3362,25 @@ class Kopru:
         if op == "oku":
             return self.oku(m["yol"])
         if op == "yaz":
-            return self.yaz(m["yol"], m.get("metin") or "", m.get("once"), bool(m.get("zorla")))
+            uzak = uzak_onbellekten(guvenli_yol(m["yol"]))
+            if not uzak:
+                return self.yaz(m["yol"], m.get("metin") or "", m.get("once"), bool(m.get("zorla")))
+            # önbellekteki uzak dosya: önce sunucuya (çakışma denetimiyle), sonra önbelleğe
+            sun = self._sunucu(uzak[0])
+            p = guvenli_yol(m["yol"])
+            gecici = p.with_name(f".{p.name}.atolye-gonder")
+            gecici.write_text(m.get("metin") or "", encoding="utf-8")
+            try:
+                mtime = await uzak_geri_yaz(sun, gecici, uzak[1], m.get("once"), bool(m.get("zorla")))
+            finally:
+                gecici.unlink(missing_ok=True)
+            sonuc = self.yaz(m["yol"], m.get("metin") or "", None, True)
+            os.utime(p, (mtime, mtime))
+            return {**sonuc, "mtime": mtime}
+        if op == "uzak_gez":
+            return await uzak_gez(self._sunucu(m.get("sunucu")), m.get("yol") or "~")
+        if op == "uzak_indir":
+            return await uzak_indir(self._sunucu(m.get("sunucu")), m["sunucu"], m["yol"])
         if op == "belge":
             return belge_oku(guvenli_yol(m["yol"]))
 
@@ -2923,7 +3403,9 @@ class Kopru:
             if op == "derleme_indir":
                 return await derleme_indir(cwd, int(m["calisma"]))
 
-        # --- git
+        # --- git (uzak oturumda komutlar SSH ile o sunucuda çalışır)
+        if op.startswith("git_") and m.get("sunucu") and op != "git_klonla":
+            return await self.uzak_git(op, m)
         if op.startswith("git_"):
             cwd = guvenli_yol(m.get("cwd") or KOK)
             if op == "git_durum":
@@ -3126,6 +3608,7 @@ def token_al(yeni: str | None) -> str:
 
 async def ana(port: int, token: str):
     k = Kopru(token)
+    zamanlayici = asyncio.create_task(k.zamanlayici())
     dur = asyncio.get_running_loop().create_future()
     for s in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -3136,6 +3619,7 @@ async def ana(port: int, token: str):
                      ping_interval=20, ping_timeout=60):
         print(f"atolye köprüsü {SURUM} — ws://127.0.0.1:{port}  kök: {KOK}", flush=True)
         await dur
+    zamanlayici.cancel()
     for o in k.oturumlar.values():
         await o.kapat()
     for t in k.terminaller.values():

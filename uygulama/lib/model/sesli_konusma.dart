@@ -83,7 +83,12 @@ class SesliKonusma extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> baslat({String? ses, String? dil, String? model}) async {
+  Future<void> baslat({
+    String? ses,
+    String? dil,
+    String? model,
+    bool sesleOnay = false,
+  }) async {
     if (acik) return;
     hata = null;
     sessiz = false;
@@ -130,6 +135,7 @@ class SesliKonusma extends ChangeNotifier {
           'ses': ?ses,
           'dil': ?dil,
           'model': ?model,
+          'sesle_onay': sesleOnay,
         });
         final String sdp;
         try {

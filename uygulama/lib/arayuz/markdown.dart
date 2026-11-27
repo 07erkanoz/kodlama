@@ -38,6 +38,8 @@ class _MarkdownState extends State<Markdown> {
   final _taps = <TapGestureRecognizer>[];
 
   String get text => widget.text;
+  List<md.Node>? _nodes;
+  String? _nodesFor;
   double get size => widget.size;
 
   void _forget() {
@@ -104,10 +106,15 @@ class _MarkdownState extends State<Markdown> {
   @override
   Widget build(BuildContext context) {
     _forget();
-    final nodes = md.Document(
-      extensionSet: md.ExtensionSet.gitHubFlavored,
-      encodeHtml: false,
-    ).parseLines(text.replaceAll('\r\n', '\n').split('\n'));
+    // Sohbet her olayda yeniden çizilir; metin aynıysa yeniden ayrıştırma.
+    if (_nodesFor != text) {
+      _nodes = md.Document(
+        extensionSet: md.ExtensionSet.gitHubFlavored,
+        encodeHtml: false,
+      ).parseLines(text.replaceAll('\r\n', '\n').split('\n'));
+      _nodesFor = text;
+    }
+    final nodes = _nodes!;
     final scheme = Theme.of(context).colorScheme;
     final base = TextStyle(
       fontSize: size,
@@ -239,7 +246,14 @@ class _MarkdownState extends State<Markdown> {
     final children = item.children ?? const <md.Node>[];
     final inline = <md.Node>[];
     final blocks = <Widget>[];
+    bool? task;
     for (final c in children) {
+      if (c is md.Element &&
+          c.tag == 'input' &&
+          c.attributes['type'] == 'checkbox') {
+        task = c.attributes.containsKey('checked');
+        continue;
+      }
       if (c is md.Element &&
           const {
             'ul',
@@ -264,14 +278,36 @@ class _MarkdownState extends State<Markdown> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: mark.length > 2 ? 26 : 16,
-            child: Text(mark, style: base),
+            width: task != null ? 24 : (mark.length > 2 ? 26 : 16),
+            child: task != null
+                ? Padding(
+                    padding: EdgeInsets.only(top: (base.fontSize ?? 14) * .3),
+                    child: Icon(
+                      task
+                          ? Icons.check_box_rounded
+                          : Icons.check_box_outline_blank_rounded,
+                      size: (base.fontSize ?? 14) + 3,
+                      color: task ? scheme.primary : scheme.outline,
+                    ),
+                  )
+                : Text(mark, style: base),
           ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (inline.isNotEmpty) Text.rich(_inline(inline, base)),
+                if (inline.isNotEmpty)
+                  Text.rich(
+                    _inline(
+                      inline,
+                      task == true
+                          ? base.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              decoration: TextDecoration.lineThrough,
+                            )
+                          : base,
+                    ),
+                  ),
                 ...blocks,
               ],
             ),
@@ -300,45 +336,60 @@ class _MarkdownState extends State<Markdown> {
     final columns = rows
         .map((r) => r.$2.length)
         .reduce((a, b) => a > b ? a : b);
+    var stripe = 0;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 12),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: Table(
-          defaultColumnWidth: const IntrinsicColumnWidth(),
-          border: TableBorder.all(color: scheme.outlineVariant),
-          children: [
-            for (final (head, cells) in rows)
-              TableRow(
-                decoration: head
-                    ? BoxDecoration(color: scheme.surfaceContainerHighest)
-                    : null,
-                children: [
-                  for (var i = 0; i < columns; i++)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 320),
-                        child: Text.rich(
-                          i < cells.length
-                              ? _inline(
-                                  cells[i].children,
-                                  head
-                                      ? base.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                        )
-                                      : base,
-                                )
-                              : const TextSpan(),
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: scheme.outlineVariant),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Table(
+            defaultColumnWidth: const IntrinsicColumnWidth(),
+            border: TableBorder(
+              horizontalInside: BorderSide(color: scheme.outlineVariant),
+              verticalInside: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: .5),
+              ),
+            ),
+            children: [
+              for (final (head, cells) in rows)
+                TableRow(
+                  decoration: head
+                      ? BoxDecoration(color: scheme.surfaceContainerHigh)
+                      : (stripe++).isOdd
+                      ? BoxDecoration(color: scheme.surfaceContainerLow)
+                      : null,
+                  children: [
+                    for (var i = 0; i < columns; i++)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 320),
+                          child: Text.rich(
+                            i < cells.length
+                                ? _inline(
+                                    cells[i].children,
+                                    head
+                                        ? base.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          )
+                                        : base,
+                                  )
+                                : const TextSpan(),
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-          ],
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -381,6 +432,32 @@ class _MarkdownState extends State<Markdown> {
         if (src == null || src.isEmpty) return const TextSpan();
         final label = alt?.isNotEmpty == true ? alt! : src.split('/').last;
         final color = Theme.of(context).colorScheme.primary;
+        final uri = Uri.tryParse(src);
+        if (uri != null && (uri.scheme == 'https' || uri.scheme == 'http')) {
+          return WidgetSpan(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: GestureDetector(
+                onTap: widget.onLink == null ? null : () => widget.onLink!(src),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 320),
+                    child: Image.network(
+                      src,
+                      semanticLabel: label,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, _, _) => Text(
+                        '🖼 $label',
+                        style: style.copyWith(color: color),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
         return TextSpan(
           children: [
             WidgetSpan(

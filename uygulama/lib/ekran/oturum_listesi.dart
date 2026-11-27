@@ -4,6 +4,8 @@ import '../arayuz/ortak.dart';
 import '../model/calisma.dart';
 import '../servis/kopru_istemci.dart';
 import 'ayarlar_ekrani.dart';
+import 'kullanim_ekrani.dart';
+import 'oturum_arama.dart';
 
 /// Kenar çubuğu: yeni oturum, gruplanmış oturumlar, kota ve tema.
 /// Dar ekranda çekmecede açılır.
@@ -78,6 +80,20 @@ class OturumListesi extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (c.yetenek('ara'))
+                        IconButton(
+                          tooltip: 'Oturumlarda ara',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            secildi?.call();
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => OturumArama(calisma: c),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.search, size: 20),
+                        ),
                       _BaglantiIsareti(durum: c.baglanti),
                     ],
                   ),
@@ -215,6 +231,16 @@ class OturumListesi extends StatelessWidget {
                           color: r.onSurfaceVariant,
                         ),
                       ),
+                      // Ajanın son yanıtı: ne yapıldığının kısa özeti.
+                      if ((o['son_metin'] as String? ?? '').isNotEmpty)
+                        Text(
+                          o['son_metin'] as String,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: t.textTheme.bodySmall?.copyWith(
+                            color: r.outline,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -345,6 +371,18 @@ class _Kotalar extends StatelessWidget {
                 ),
               ),
               const Spacer(),
+              if (calisma.yetenek('kullanim'))
+                IconButton(
+                  tooltip: 'Kullanım ayrıntıları',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 16,
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => KullanimEkrani(calisma: calisma),
+                    ),
+                  ),
+                  icon: const Icon(Icons.bar_chart_rounded),
+                ),
               if (calisma.yetenek('kota_oku'))
                 IconButton(
                   tooltip: 'Yenile',
@@ -357,15 +395,15 @@ class _Kotalar extends StatelessWidget {
           ),
           for (final ajan in ajanlar)
             for (final p in kotalar[ajan]!.cast<Map>())
-              _KotaSatiri(ajan: ajan, p: p),
+              KotaSatiri(ajan: ajan, p: p),
         ],
       ),
     );
   }
 }
 
-class _KotaSatiri extends StatelessWidget {
-  const _KotaSatiri({required this.ajan, required this.p});
+class KotaSatiri extends StatelessWidget {
+  const KotaSatiri({super.key, required this.ajan, required this.p});
   final String ajan;
   final Map p;
 
