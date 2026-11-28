@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../arayuz/tam_ekran.dart';
 import '../arayuz/ortak.dart';
+import '../arayuz/ssh_hatasi.dart';
 import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
 import '../model/istemler.dart';
@@ -29,6 +31,8 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
   Map<String, dynamic>? _ssh;
   Map<String, dynamic>? _araclar;
   final _sinanan = <String, String>{}; // sunucu → test sonucu
+  final _sinananSsh =
+      <String, Map<String, dynamic>>{}; // sunucu → SSH hata ayrıntısı
   final _hatalar = <String, String>{}; // işlem → yüklenemediyse neden
   String? _calisan;
 
@@ -288,29 +292,54 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                   _Bolum(
                     simge: Icons.palette_outlined,
                     baslik: 'Görünüm',
-                    child: ListenableBuilder(
-                      listenable: c,
-                      builder: (context, _) => SegmentedButton<ThemeModeSecimi>(
-                        segments: const [
-                          ButtonSegment(
-                            value: ThemeModeSecimi.acik,
-                            label: Text('Açık'),
-                            icon: Icon(Icons.light_mode_outlined),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ListenableBuilder(
+                          listenable: c,
+                          builder: (context, _) =>
+                              SegmentedButton<ThemeModeSecimi>(
+                                segments: const [
+                                  ButtonSegment(
+                                    value: ThemeModeSecimi.acik,
+                                    label: Text('Açık'),
+                                    icon: Icon(Icons.light_mode_outlined),
+                                  ),
+                                  ButtonSegment(
+                                    value: ThemeModeSecimi.sistem,
+                                    label: Text('Sistem'),
+                                    icon: Icon(Icons.brightness_auto_outlined),
+                                  ),
+                                  ButtonSegment(
+                                    value: ThemeModeSecimi.koyu,
+                                    label: Text('Koyu'),
+                                    icon: Icon(Icons.dark_mode_outlined),
+                                  ),
+                                ],
+                                selected: {c.tema},
+                                onSelectionChanged: (s) =>
+                                    c.temaDegistir(s.first),
+                              ),
+                        ),
+                        if (Termux.destekleniyor)
+                          ValueListenableBuilder<bool>(
+                            valueListenable: tamEkran,
+                            builder: (context, acik, _) => SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Tam ekran'),
+                              subtitle: const Text(
+                                'Saat, bildirim ve gezinme çubukları gizlenir; '
+                                'kenardan kaydırınca bir an görünür.',
+                              ),
+                              value: acik,
+                              onChanged: (v) {
+                                c.ayarlar.tamEkran = v;
+                                tamEkran.value = v;
+                                sistemCubuklariniUygula();
+                              },
+                            ),
                           ),
-                          ButtonSegment(
-                            value: ThemeModeSecimi.sistem,
-                            label: Text('Sistem'),
-                            icon: Icon(Icons.brightness_auto_outlined),
-                          ),
-                          ButtonSegment(
-                            value: ThemeModeSecimi.koyu,
-                            label: Text('Koyu'),
-                            icon: Icon(Icons.dark_mode_outlined),
-                          ),
-                        ],
-                        selected: {c.tema},
-                        onSelectionChanged: (s) => c.temaDegistir(s.first),
-                      ),
+                      ],
                     ),
                   ),
                   if (Bildirim.destekleniyor)
@@ -678,10 +707,12 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
     final r = t.colorScheme;
     final ad = s['ad'] as String;
     final sonuc = _sinanan[ad];
+    final ssh = _sinananSsh[ad];
     final anahtarSorunu =
         sonuc != null &&
         sonuc.startsWith('✗') &&
-        sonuc.contains('Permission denied');
+        (ssh?['tur'] == 'yetki' || sonuc.contains('Permission denied'));
+    final anahtarDegisti = sonuc != null && ssh?['tur'] == 'anahtar_degisti';
     final mesgul = _calisan != null;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -698,7 +729,8 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                   children: [
                     Text(ad, style: t.textTheme.titleMedium),
                     Text(
-                      '${s['kullanici'] != null ? '${s['kullanici']}@' : ''}${s['host']}:${s['port']}',
+                      '${s['kullanici'] != null ? '${s['kullanici']}@' : ''}${s['host']}:${s['port']}'
+                      '${s['uzerinden'] != null ? '  ·  ${s['uzerinden']} üzerinden' : ''}',
                       style: t.textTheme.bodySmall?.copyWith(
                         color: r.onSurfaceVariant,
                       ),
@@ -781,6 +813,22 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                       : const Icon(Icons.key_outlined, size: 18),
                   label: const Text('Anahtarı gönder'),
                 ),
+                if (anahtarDegisti)
+                  FilledButton.tonalIcon(
+                    onPressed: mesgul
+                        ? null
+                        : () async {
+                            if (await anahtarDegistiDiyalogu(
+                              context,
+                              c,
+                              ssh!,
+                            )) {
+                              await _sunucuDene(ad);
+                            }
+                          },
+                    icon: const Icon(Icons.fingerprint, size: 18),
+                    label: const Text('Anahtarı incele'),
+                  ),
               ],
             ),
           ),
@@ -795,8 +843,15 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
       final araclar = (r['araclar'] as List).join(', ');
       _sinanan[ad] =
           '✓ bağlandı · ${araclar.isEmpty ? 'ajan bulunamadı' : araclar}';
+      _sinananSsh.remove(ad);
     } catch (e) {
       _sinanan[ad] = '✗ $e';
+      final a = sshAyrintisi(e);
+      if (a != null) {
+        _sinananSsh[ad] = a;
+      } else {
+        _sinananSsh.remove(ad);
+      }
     }
   });
 
@@ -892,90 +947,125 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
     );
     final port = TextEditingController(text: '${s?['port'] ?? 22}');
     final klasor = TextEditingController(text: s?['klasor'] as String? ?? '~');
+    // Atlama: bu sunucuya yalnız başka bir kayıtlı sunucu üzerinden ulaşılıyorsa
+    // (ör. ofisteki yerel ağda, dışarı açık olmayan bir makine).
+    final digerleri = [
+      for (final x in (_ssh?['sunucular'] as List? ?? const []))
+        if (x is Map && x['ad'] != s?['ad']) x['ad'] as String,
+    ];
+    String? uzerinden = s?['uzerinden'] as String?;
+    if (uzerinden != null && !digerleri.contains(uzerinden)) uzerinden = null;
     final kaydet = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(s == null ? 'Sunucu ekle' : 'Sunucuyu düzenle'),
-        content: SizedBox(
-          width: 420,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: ad,
-                  decoration: const InputDecoration(
-                    labelText: 'Ad',
-                    hintText: 'ev-sunucusu',
+      builder: (context) => StatefulBuilder(
+        builder: (context, yenile) => AlertDialog(
+          title: Text(s == null ? 'Sunucu ekle' : 'Sunucuyu düzenle'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: ad,
+                    decoration: const InputDecoration(
+                      labelText: 'Ad',
+                      hintText: 'ev-sunucusu',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: host,
-                  decoration: const InputDecoration(
-                    labelText: 'Adres',
-                    hintText: 'Sabit IP, alan adı ya da Tailscale adı',
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: host,
+                    decoration: const InputDecoration(
+                      labelText: 'Adres',
+                      hintText: 'Sabit IP, alan adı ya da Tailscale adı',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: kullanici,
-                        decoration: const InputDecoration(
-                          labelText: 'Kullanıcı',
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: kullanici,
+                          decoration: const InputDecoration(
+                            labelText: 'Kullanıcı',
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      width: 90,
-                      child: TextField(
-                        controller: port,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Port'),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 90,
+                        child: TextField(
+                          controller: port,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(labelText: 'Port'),
+                        ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: klasor,
+                    decoration: const InputDecoration(
+                      labelText: 'Varsayılan klasör',
+                      hintText: '/home/kullanici/projeler',
+                    ),
+                  ),
+                  if (digerleri.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String?>(
+                      initialValue: uzerinden,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Bağlantı',
+                        helperText:
+                            'Sunucu yalnız başka bir makinenin ağından görünüyorsa '
+                            '(ör. ofisteki yerel IP) o makineyi seç.',
+                        helperMaxLines: 3,
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('Doğrudan'),
+                        ),
+                        for (final d in digerleri)
+                          DropdownMenuItem(
+                            value: d,
+                            child: Text('$d üzerinden'),
+                          ),
+                      ],
+                      onChanged: (v) => yenile(() => uzerinden = v),
                     ),
                   ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: klasor,
-                  decoration: const InputDecoration(
-                    labelText: 'Varsayılan klasör',
-                    hintText: '/home/kullanici/projeler',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _BaglantiRehberi(anahtar: _ssh?['anahtar'] as String?),
-              ],
+                  const SizedBox(height: 8),
+                  _BaglantiRehberi(anahtar: _ssh?['anahtar'] as String?),
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Vazgeç'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Kaydet'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Kaydet'),
-          ),
-        ],
       ),
     );
     if (kaydet != true) return;
     await _yap('kaydet', () async {
-      if (s != null && s['ad'] != ad.text.trim()) {
-        await c.istemci.iste('sunucu_sil', {'ad': s['ad']});
-      }
       await c.istemci.iste('sunucu_kaydet', {
         'ad': ad.text.trim(),
+        'eski_ad': ?s?['ad'],
         'host': host.text.trim(),
         'kullanici': kullanici.text.trim(),
         'port': int.tryParse(port.text) ?? 22,
         'klasor': klasor.text.trim(),
+        'uzerinden': ?uzerinden,
       });
     });
   }
@@ -1273,8 +1363,6 @@ class _GuncellemeBolumuState extends State<_GuncellemeBolumu> {
   ({int kod, String ad})? _kurulu;
   bool _denetleniyor = false;
   bool _denetlendi = false;
-  bool _kuruluyor = false;
-  double? _oran;
   String? _hata;
 
   @override
@@ -1302,31 +1390,6 @@ class _GuncellemeBolumuState extends State<_GuncellemeBolumu> {
     }
   }
 
-  Future<void> _kur(Surum s) async {
-    setState(() {
-      _kuruluyor = true;
-      _oran = null;
-      _hata = null;
-    });
-    try {
-      final tamam = await guncellemeyiKur(
-        s,
-        ilerleme: (o) {
-          if (mounted) setState(() => _oran = o);
-        },
-      );
-      if (!tamam) {
-        _hata =
-            'Önce Atölye\'ye "bilinmeyen uygulamaları yükle" izni ver, '
-            'sonra yeniden dene.';
-      }
-    } catch (e) {
-      _hata = 'Kurulamadı: $e';
-    } finally {
-      if (mounted) setState(() => _kuruluyor = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
@@ -1338,102 +1401,121 @@ class _GuncellemeBolumuState extends State<_GuncellemeBolumu> {
       baslik: 'Uygulama güncellemesi',
       aciklama:
           'Yeni sürümler GitHub\'daki $guncellemeDeposu deposundan gelir.',
-      child: ValueListenableBuilder<Surum?>(
-        valueListenable: yeniSurum,
-        builder: (context, yeni, _) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              k == null
-                  ? 'Kurulu sürüm okunuyor…'
-                  : 'Kurulu: ${k.ad} (yapı ${k.kod})',
-              style: t.textTheme.bodyMedium,
-            ),
-            if (yeni != null) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: r.primaryContainer.withValues(alpha: .4),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Yeni sürüm: ${yeni.ad}',
-                      style: t.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      [
-                        'yapı ${yeni.kod}',
-                        if (yeni.tarih != null) _tarih(yeni.tarih!.toLocal()),
-                        if (yeni.boyut > 0)
-                          '${(yeni.boyut / 1e6).toStringAsFixed(0)} MB',
-                        if (yeni.sha256 == null) 'özet yok, doğrulanmayacak',
-                      ].join(' · '),
-                      style: t.textTheme.bodySmall?.copyWith(
-                        color: r.onSurfaceVariant,
-                      ),
-                    ),
-                    if (_kuruluyor) ...[
-                      const SizedBox(height: 10),
-                      LinearProgressIndicator(value: _oran),
-                    ],
-                  ],
-                ),
-              ),
-            ] else if (_denetlendi) ...[
-              const SizedBox(height: 6),
+      child: ListenableBuilder(
+        listenable: Listenable.merge([yeniSurum, guncellemeIndirmesi]),
+        builder: (context, _) {
+          final yeni = yeniSurum.value;
+          final ind = guncellemeIndirmesi.value;
+          final kuruluyor = ind.calisiyor;
+          final hata = _hata ?? ind.hata;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               Text(
-                'Güncelsin.',
-                style: t.textTheme.bodySmall?.copyWith(
-                  color: r.onSurfaceVariant,
-                ),
+                k == null
+                    ? 'Kurulu sürüm okunuyor…'
+                    : 'Kurulu: ${k.ad} (yapı ${k.kod})',
+                style: t.textTheme.bodyMedium,
               ),
-            ],
-            if (_hata != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                _hata!,
-                style: t.textTheme.bodySmall?.copyWith(color: r.error),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (yeni != null)
-                  FilledButton.icon(
-                    onPressed: _kuruluyor ? null : () => _kur(yeni),
-                    icon: const Icon(Icons.download_rounded, size: 18),
-                    label: Text(_kuruluyor ? 'İndiriliyor…' : 'İndir ve kur'),
+              if (yeni != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: r.primaryContainer.withValues(alpha: .4),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                OutlinedButton.icon(
-                  onPressed: _denetleniyor || _kuruluyor ? null : _denetle,
-                  icon: _denetleniyor
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Güncellemeleri denetle'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Yeni sürüm: ${yeni.ad}',
+                        style: t.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        [
+                          'yapı ${yeni.kod}',
+                          if (yeni.tarih != null) _tarih(yeni.tarih!.toLocal()),
+                          if (yeni.boyut > 0)
+                            '${(yeni.boyut / 1e6).toStringAsFixed(0)} MB',
+                          if (yeni.sha256 == null) 'özet yok, doğrulanmayacak',
+                        ].join(' · '),
+                        style: t.textTheme.bodySmall?.copyWith(
+                          color: r.onSurfaceVariant,
+                        ),
+                      ),
+                      if (kuruluyor) ...[
+                        const SizedBox(height: 10),
+                        LinearProgressIndicator(value: ind.oran),
+                        if (ind.oran != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              '%${(ind.oran! * 100).toStringAsFixed(0)} indirildi',
+                              style: t.textTheme.bodySmall,
+                            ),
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              ] else if (_denetlendi) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Güncelsin.',
+                  style: t.textTheme.bodySmall?.copyWith(
+                    color: r.onSurfaceVariant,
+                  ),
                 ),
               ],
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Açılışta denetle'),
-              subtitle: const Text('Günde en çok bir kez'),
-              value: a.guncellemeDenetle,
-              onChanged: (v) => setState(() => a.guncellemeDenetle = v),
-            ),
-          ],
-        ),
+              if (hata != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  hata,
+                  style: t.textTheme.bodySmall?.copyWith(color: r.error),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (yeni != null)
+                    FilledButton.icon(
+                      onPressed: kuruluyor
+                          ? null
+                          : () {
+                              setState(() => _hata = null);
+                              guncellemeyiBaslat(yeni);
+                            },
+                      icon: const Icon(Icons.download_rounded, size: 18),
+                      label: Text(kuruluyor ? 'İndiriliyor…' : 'İndir ve kur'),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: _denetleniyor || kuruluyor ? null : _denetle,
+                    icon: _denetleniyor
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Güncellemeleri denetle'),
+                  ),
+                ],
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Açılışta denetle'),
+                subtitle: const Text('Günde en çok bir kez'),
+                value: a.guncellemeDenetle,
+                onChanged: (v) => setState(() => a.guncellemeDenetle = v),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

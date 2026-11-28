@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../model/calisma.dart';
+import '../arayuz/ssh_hatasi.dart';
 import '../model/sohbet.dart';
 import 'git_paneli.dart';
 import 'onizleme.dart';
@@ -184,6 +185,18 @@ class _DosyaPaneliState extends State<DosyaPaneli>
       future: _liste,
       builder: (context, snap) {
         if (snap.hasError) {
+          final ssh = sshAyrintisi(snap.error!);
+          if (ssh != null) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: SshHataKarti(
+                calisma: widget.calisma,
+                mesaj: '${snap.error}',
+                ayrinti: ssh,
+                cozuldu: _yukle,
+              ),
+            );
+          }
           return Center(child: Text('${snap.error}'));
         }
         if (!snap.hasData) {

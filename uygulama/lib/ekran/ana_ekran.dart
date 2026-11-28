@@ -89,42 +89,15 @@ class _AnaEkranState extends State<AnaEkran> {
       return;
     }
     try {
-      final yeni = await guncellemeDenetle();
+      await guncellemeDenetle(); // bulunursa yeniSurum'a yazar; şerit onu dinler
       a.sonGuncellemeDenetimi = simdi;
-      if (yeni == null || !mounted) return;
-      final m = ScaffoldMessenger.of(context);
-      m.showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 10),
-          content: Text('Atölye\'nin yeni sürümü var: ${yeni.ad}'),
-          action: SnackBarAction(
-            label: 'Kur',
-            onPressed: () async {
-              m.showSnackBar(
-                const SnackBar(content: Text('Güncelleme indiriliyor…')),
-              );
-              try {
-                if (!await guncellemeyiKur(yeni)) {
-                  m.showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Önce "bilinmeyen uygulamaları yükle" iznini ver; '
-                        'sonra Ayarlar › Uygulama güncellemesi\'nden kur.',
-                      ),
-                    ),
-                  );
-                }
-              } catch (e) {
-                m.showSnackBar(SnackBar(content: Text('Kurulamadı: $e')));
-              }
-            },
-          ),
-        ),
-      );
     } catch (_) {
       // Ağ yoksa sessiz geç; Ayarlar'dan elle denetlenebilir.
     }
   }
+
+  /// Güncelleme şeridi bu açılışta kapatıldı mı ("Sonra").
+  bool _seritKapali = false;
 
   @override
   Widget build(BuildContext context) {
@@ -134,19 +107,46 @@ class _AnaEkranState extends State<AnaEkran> {
         if (!bitti) _geri(context);
       },
       child: ListenableBuilder(
-        listenable: calisma,
-        builder: (context, _) => LayoutBuilder(
-          builder: (context, kisit) {
-            if (dikeyMentese(context) != null) {
-              return _Katlanir(calisma: calisma);
-            }
-            return switch (ekranSinifi(kisit.maxWidth)) {
-              EkranSinifi.dar => _Dar(calisma: calisma),
-              EkranSinifi.orta => _Orta(calisma: calisma),
-              EkranSinifi.genis => _Genis(calisma: calisma),
-            };
-          },
-        ),
+        listenable: Listenable.merge([yeniSurum, guncellemeIndirmesi]),
+        builder: (context, _) {
+          final yeni = yeniSurum.value;
+          final ind = guncellemeIndirmesi.value;
+          final serit =
+              yeni != null &&
+              (!_seritKapali || ind.calisiyor || ind.hata != null);
+          final duzen = ListenableBuilder(
+            listenable: calisma,
+            builder: (context, _) => LayoutBuilder(
+              builder: (context, kisit) {
+                if (dikeyMentese(context) != null) {
+                  return _Katlanir(calisma: calisma);
+                }
+                return switch (ekranSinifi(kisit.maxWidth)) {
+                  EkranSinifi.dar => _Dar(calisma: calisma),
+                  EkranSinifi.orta => _Orta(calisma: calisma),
+                  EkranSinifi.genis => _Genis(calisma: calisma),
+                };
+              },
+            ),
+          );
+          if (!serit) return duzen;
+          return Column(
+            children: [
+              _GuncellemeSeridi(
+                surum: yeni,
+                durum: ind,
+                kapat: () => setState(() => _seritKapali = true),
+              ),
+              Expanded(
+                child: MediaQuery.removePadding(
+                  context: context,
+                  removeTop: true,
+                  child: duzen,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -476,6 +476,103 @@ class _Genis extends StatelessWidget {
             child: c.secili == null ? const SizedBox.shrink() : _sagPanel(c),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Yeni sürüm var: ana ekranın üstünde, kapatılana dek duran şerit. "İndir ve
+/// kur" Ayarlar'dakiyle aynı indirmeyi başlatır, ilerleme burada da görünür.
+class _GuncellemeSeridi extends StatelessWidget {
+  const _GuncellemeSeridi({
+    required this.surum,
+    required this.durum,
+    required this.kapat,
+  });
+
+  final Surum surum;
+  final IndirmeDurumu durum;
+  final VoidCallback kapat;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final r = t.colorScheme;
+    final oran = durum.oran;
+    return Material(
+      color: r.primaryContainer,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.system_update_alt_rounded,
+                    color: r.onPrimaryContainer,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          durum.calisiyor
+                              ? 'Güncelleme indiriliyor'
+                              : 'Yeni sürüm var: ${surum.ad}',
+                          style: t.textTheme.titleSmall?.copyWith(
+                            color: r.onPrimaryContainer,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          durum.calisiyor
+                              ? [
+                                  if (oran != null)
+                                    '%${(oran * 100).toStringAsFixed(0)}',
+                                  if (surum.boyut > 0)
+                                    '${(surum.boyut / 1e6).toStringAsFixed(0)} MB',
+                                ].join(' · ')
+                              : durum.hata ??
+                                    [
+                                      'yapı ${surum.kod}',
+                                      if (surum.boyut > 0)
+                                        '${(surum.boyut / 1e6).toStringAsFixed(0)} MB',
+                                    ].join(' · '),
+                          style: t.textTheme.bodySmall?.copyWith(
+                            color: durum.hata != null && !durum.calisiyor
+                                ? r.error
+                                : r.onPrimaryContainer,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!durum.calisiyor) ...[
+                    TextButton(onPressed: kapat, child: const Text('Sonra')),
+                    FilledButton(
+                      onPressed: () => guncellemeyiBaslat(surum),
+                      child: Text(
+                        durum.hata != null ? 'Yeniden dene' : 'İndir ve kur',
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              if (durum.calisiyor) ...[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: LinearProgressIndicator(value: oran),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

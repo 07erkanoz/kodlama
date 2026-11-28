@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
+import 'arayuz/tam_ekran.dart';
 import 'arayuz/tema.dart';
 import 'ekran/ana_ekran.dart';
 import 'ekran/kurulum_ekrani.dart';
@@ -14,6 +15,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   final ayarlar = await Ayarlar.yukle();
+  tamEkranBaslat(ayarlar.tamEkran);
   final calisma = Calisma(ayarlar);
   // Ajan çalışırken kalıcı bildirim, onay/sonuç bildirimleri; uygulama boyunca yaşar.
   final bildirim = BildirimYoneticisi(calisma);

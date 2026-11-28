@@ -52,10 +52,10 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.13.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.14.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
-YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan", "uzak_klasor", "kota_oku", "uzak_dosya", "bildirim_onay", "zamanlanmis", "ara", "kullanim"]
+YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan", "uzak_klasor", "kota_oku", "uzak_dosya", "bildirim_onay", "zamanlanmis", "ara", "kullanim", "ssh_hata"]
 EV = Path(os.environ.get("ATOLYE_EV", Path.home() / ".atolye"))
 KOK = Path(os.environ.get("ATOLYE_KOK", Path.home() / "projeler"))
 ATLA = {".git", "node_modules", ".dart_tool", "build", ".gradle", "__pycache__", ".venv", "venv", ".atolye"}
@@ -893,16 +893,197 @@ def _ara_norm(s: str) -> str:
     return s.replace("İ", "i").replace("I", "i").replace("ı", "i").lower()
 
 
+def _ssh_adres(s: dict) -> str:
+    return f"{s['kullanici']}@{s['host']}" if s.get("kullanici") else s["host"]
+
+
+def _atlama_secenegi(s: dict) -> list[str]:
+    """Sunucuya başka bir sunucu üzerinden (atlama) gidilecekse ProxyCommand seçeneği.
+    -J yerine ProxyCommand: aradaki bağlantı da BatchMode ve aynı ayarlarla kurulsun
+    (-J komut satırındaki -o seçeneklerini aradaki makineye geçirmez)."""
+    a = s.get("_atlama")
+    if not a:
+        return []
+    ara = ["ssh", *_atlama_secenegi(a), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+           "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30",
+           "-W", f"[{s['host']}]:{int(s.get('port') or 22)}" if ":" in s["host"] else f"{s['host']}:{int(s.get('port') or 22)}",
+           "-p", str(a.get("port") or 22), _ssh_adres(a)]
+    return ["-o", "ProxyCommand=" + shlex.join(ara).replace("%", "%%")]
+
+
 def ssh_hedef(s: dict) -> list[str]:
-    return ["ssh", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+    if s.get("_atlama_hata"):
+        raise RuntimeError(s["_atlama_hata"])
+    return ["ssh", "-T", *_atlama_secenegi(s), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30",
-            "-p", str(s.get("port") or 22), f"{s['kullanici']}@{s['host']}" if s.get("kullanici") else s["host"]]
+            "-p", str(s.get("port") or 22), _ssh_adres(s)]
+
+
+def sunuculari_coz(liste: list[dict]) -> dict[str, dict]:
+    """sunucular.json kayıtları; "uzerinden" verilmişse o sunucunun bilgisi `_atlama`
+    olarak eklenir (zincir olabilir, döngü ya da eksik kayıt atlanmaz: hata verir)."""
+    hepsi = {x["ad"]: dict(x) for x in liste if isinstance(x, dict) and x.get("ad")}
+
+    def coz(ad: str, yol: tuple) -> dict:
+        s = hepsi[ad]
+        ara = s.get("uzerinden")
+        if ara and "_atlama" not in s:
+            if ara in yol or ara not in hepsi:
+                s["_atlama_hata"] = (f"{ad}: aradaki sunucu ({ara}) bulunamadı" if ara not in hepsi
+                                     else f"{ad}: sunucular birbirinin üzerinden tanımlanmış (döngü)")
+            else:
+                s["_atlama"] = coz(ara, yol + (ad,))
+        return s
+    for ad in list(hepsi):
+        coz(ad, ())
+    return hepsi
+
+
+# --- SSH hataları: ssh'nin İngilizce çıktısı anlaşılır bir Türkçe açıklamaya ve
+# uygulamanın çözüm sunabileceği bir türe çevrilir.
+
+class SshHatasi(RuntimeError):
+    """Uygulamaya `hata_ayrinti` ile giden SSH hatası (tür, sunucu, parmak izleri)."""
+
+    def __init__(self, mesaj: str, ayrinti: dict):
+        super().__init__(mesaj)
+        self.ayrinti = ayrinti
+
+
+SSH_HATALARI = [
+    (("REMOTE HOST IDENTIFICATION HAS CHANGED", "Host key verification failed",
+      "Host key for", "host key mismatch"), "anahtar_degisti",
+     "Sunucunun kimlik anahtarı değişmiş. Sunucu yeniden kurulduysa ya da SSH anahtarları "
+     "yenilendiyse bu beklenir; değilse araya biri girmiş olabilir. Parmak izini kontrol edip "
+     "yeni anahtara güvenebilirsin."),
+    (("Permission denied", "Too many authentication failures"), "yetki",
+     "Sunucu bu telefonun SSH anahtarını kabul etmedi. Anahtarı sunucuya gönder."),
+    (("Connection refused",), "reddedildi",
+     "Sunucu bağlantıyı reddetti: SSH hizmeti kapalı ya da port yanlış."),
+    (("Could not resolve hostname", "Name or service not known", "nodename nor servname",
+      "Temporary failure in name resolution"), "adres",
+     "Sunucu adresi bulunamadı: adı yanlış yazılmış ya da internet yok."),
+    (("No route to host", "Network is unreachable"), "ag",
+     "Sunucuya ulaşılamıyor: telefonun ağ bağlantısını, VPN'i ya da sunucunun açık olduğunu kontrol et."),
+    (("timed out", "Operation timed out", "zaman asimi"), "zaman_asimi",
+     "Sunucu yanıt vermedi: kapalı, uykuda ya da başka bir ağda olabilir."),
+    (("Connection closed by", "Connection reset", "kex_exchange_identification"), "kapandi",
+     "Sunucu bağlantıyı kesti: SSH hizmeti yeniden başlıyor ya da bu adres engellenmiş olabilir."),
+]
+
+
+def ssh_hata_turu(err: str) -> tuple[str, str] | None:
+    for arananlar, tur, mesaj in SSH_HATALARI:
+        if any(a in err for a in arananlar):
+            return tur, mesaj
+    return None
+
+
+BILINEN_HOSTLAR = Path.home() / ".ssh" / "known_hosts"
+
+
+def _host_adi(s: dict) -> str:
+    port = int(s.get("port") or 22)
+    return s["host"] if port == 22 else f"[{s['host']}]:{port}"
+
+
+_PARMAK = re.compile(r"(SHA256:\S+).*\((\w+)\)\s*$")
+
+
+async def _parmak(satir: str) -> tuple[str, str] | None:
+    """Bir known_hosts/keyscan satırının parmak izi ve anahtar türü."""
+    kod, out, _ = await calistir(["ssh-keygen", "-lf", "-"], sure=10, girdi=(satir + "\n").encode())
+    m = _PARMAK.search(out.strip()) if kod == 0 else None
+    return (m.group(1), m.group(2)) if m else None
+
+
+async def sunucu_anahtarlari(s: dict) -> list[dict]:
+    """Sunucunun şu an sunduğu kimlik anahtarları: [{tur, parmak, satir}]."""
+    tara = ["ssh-keyscan", "-T", "8", "-p", str(s.get("port") or 22), s["host"]]
+    if s.get("_atlama"):  # sunucuya yalnız aradaki makine ulaşabilir: taramayı orada yap
+        tara = ssh_hedef(s["_atlama"]) + ["--", shlex.join(tara)]
+    kod, out, _ = await calistir(tara, sure=30)
+    sonuc = []
+    for satir in out.splitlines():
+        if not satir.strip() or satir.startswith("#"):
+            continue
+        p = await _parmak(satir)
+        if p:
+            sonuc.append({"parmak": p[0], "tur": p[1], "satir": satir})
+    return sonuc
+
+
+async def kayitli_parmaklar(s: dict) -> list[dict]:
+    """known_hosts'ta bu sunucu için kayıtlı (eski) anahtarların parmak izleri."""
+    if not BILINEN_HOSTLAR.exists():
+        return []
+    kod, out, _ = await calistir(["ssh-keygen", "-F", _host_adi(s), "-l", "-f", str(BILINEN_HOSTLAR)], sure=10)
+    sonuc = []
+    for satir in out.splitlines():
+        if satir.startswith("#"):
+            continue
+        # Yeni OpenSSH: "host ED25519 SHA256:…"; eskisi: "256 SHA256:… host (ED25519)"
+        m = _PARMAK.search(satir)
+        if m:
+            sonuc.append({"parmak": m.group(1), "tur": m.group(2)})
+        elif m := re.search(r"\s(\S+)\s+(SHA256:\S+)\s*$", satir):
+            sonuc.append({"parmak": m.group(2), "tur": m.group(1)})
+    return sonuc
+
+
+async def ssh_hatasi(s: dict, err: str, varsayilan: str) -> Exception:
+    """ssh'nin hata çıktısını SshHatasi'na çevirir; tanınmazsa düz hata."""
+    err = (err or "").strip()
+    t = ssh_hata_turu(err)
+    if not t:
+        return RuntimeError(kisa(err, 400) or varsayilan)
+    ayrinti = {"tur": t[0], "sunucu": s.get("ad"), "host": s["host"],
+               "port": int(s.get("port") or 22), "ham": kisa(err, 1500)}
+    mesaj = t[1]
+    if s.get("uzerinden"):
+        ayrinti["uzerinden"] = s["uzerinden"]
+        mesaj += (f" Bağlantı {s['uzerinden']} üzerinden kuruluyor; sorun telefonla "
+                  f"{s['uzerinden']} arasında da, {s['uzerinden']} ile bu sunucu arasında da olabilir.")
+    if t[0] == "anahtar_degisti":
+        ayrinti["eski"] = await kayitli_parmaklar(s)
+        ayrinti["yeni"] = [{"tur": a["tur"], "parmak": a["parmak"]} for a in await sunucu_anahtarlari(s)]
+    return SshHatasi(mesaj, ayrinti)
+
+
+async def anahtara_guven(s: dict, parmak: str) -> dict:
+    """Sunucunun yeni kimlik anahtarına güven: kullanıcının gördüğü parmak izi şu an
+    sunulanla aynıysa eski kayıt silinir, yenisi known_hosts'a yazılır."""
+    anahtarlar = await sunucu_anahtarlari(s)
+    uyan = [a for a in anahtarlar if a["parmak"] == parmak]
+    if not uyan:
+        if not anahtarlar:
+            raise RuntimeError("sunucuya ulaşılamadı, anahtar okunamadı")
+        raise RuntimeError("sunucunun anahtarı gösterilenle aynı değil; yeniden dene")
+    bilinen = BILINEN_HOSTLAR
+    bilinen.parent.mkdir(mode=0o700, exist_ok=True)
+    if bilinen.exists():
+        await calistir(["ssh-keygen", "-R", _host_adi(s), "-f", str(bilinen)], sure=10)
+        Path(str(bilinen) + ".old").unlink(missing_ok=True)
+    with open(bilinen, "a", encoding="utf-8") as f:
+        for a in uyan:
+            f.write(a["satir"] + "\n")
+    return {"tamam": True, "parmak": parmak}
+
+
+# Giriş kabuğu ~/.local/bin'i PATH'e her zaman koymaz (çoğu dağıtımda yalnız .bashrc
+# ekler); claude'un kurulum betiği oraya kurduğu için başa eklenir.
+UZAK_PATH = 'export PATH="$HOME/.local/bin:$HOME/bin:$PATH"; '
+
+
+def uzak_bash(ic: str) -> str:
+    """Uzak makinede giriş kabuğuyla (PATH yüklensin) çalışacak komut satırı."""
+    return shlex.join(["bash", "-lc", UZAK_PATH + ic])
 
 
 def uzak_komut(s: dict, klasor: str, args: list[str]) -> list[str]:
-    """Uzak makinede giriş kabuğuyla (PATH yüklensin) klasöre geçip komutu çalıştır."""
+    """Uzak makinede giriş kabuğuyla klasöre geçip komutu çalıştır."""
     ic = f"cd {_uzak_hedef(klasor)} && exec {shlex.join(args)}"
-    return ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", ic])]
+    return ssh_hedef(s) + ["--", uzak_bash(ic)]
 
 
 def _uzak_hedef(klasor: str) -> str:
@@ -929,7 +1110,7 @@ async def uzak_listele(s: dict, klasor: str, yeni: str | None = None) -> dict:
     if kod == 4:
         raise RuntimeError("klasör oluşturulamadı")
     if "ATOLYE_YOL=" not in out:
-        raise RuntimeError(err.strip() or "bağlanılamadı")
+        raise await ssh_hatasi(s, err, "bağlanılamadı")
     yol, git, klasorler = "", False, []
     for satir in out.splitlines():
         if satir.startswith("ATOLYE_YOL="):
@@ -968,7 +1149,7 @@ async def uzak_gez(s: dict, klasor: str) -> dict:
     if kod == 3:
         raise RuntimeError(f"{klasor}: klasör yok ya da açılamıyor")
     if "ATOLYE_YOL=" not in out:
-        raise RuntimeError(kisa(err.strip(), 400) or "bağlanılamadı")
+        raise await ssh_hatasi(s, err, "bağlanılamadı")
     yol, ogeler = "", []
     for satir in out.splitlines():
         if satir.startswith("ATOLYE_YOL="):
@@ -1048,7 +1229,7 @@ async def uzak_indir(s: dict, sunucu: str, yol: str) -> dict:
             err = b"zaman asimi"
     if p.returncode != 0:
         gecici.unlink(missing_ok=True)
-        raise RuntimeError(kisa(err.decode(errors="replace").strip(), 400) or "indirilemedi")
+        raise await ssh_hatasi(s, err.decode(errors="replace"), "indirilemedi")
     os.replace(gecici, hedef)
     os.utime(hedef, (st[1], st[1]))
     return {"yol": str(hedef), "uzak": yol, "boyut": st[0]}
@@ -1064,7 +1245,7 @@ async def uzak_geri_yaz(s: dict, yerel: Path, yol: str, once: float | None, zorl
     kod, _, err = await calistir(ssh_hedef(s) + ["--", f"cat > {_uzak_hedef(yol)}"], sure=300,
                                  girdi=yerel.read_bytes())
     if kod != 0:
-        raise RuntimeError(kisa(err.strip(), 400) or "sunucuya yazılamadı")
+        raise await ssh_hatasi(s, err, "sunucuya yazılamadı")
     st = await uzak_stat(s, yol)
     return st[1] if st else time.time()
 
@@ -1089,8 +1270,8 @@ async def anahtar_gonder(s: dict, parola: str) -> dict:
              f"if grep -qxF {k} \"$f\"; then echo ATOLYE_VARDI; else "
              "if [ -s \"$f\" ] && [ -n \"$(tail -c1 \"$f\")\" ]; then echo >> \"$f\"; fi; "
              f"printf '%s\\n' {k} >> \"$f\" && echo ATOLYE_EKLENDI; fi")
-    hedef = f"{s['kullanici']}@{s['host']}" if s.get("kullanici") else s["host"]
-    args = ["ssh", "-T", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15",
+    hedef = _ssh_adres(s)
+    args = ["ssh", "-T", *_atlama_secenegi(s), "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15",
             "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=keyboard-interactive,password",
             "-o", "NumberOfPasswordPrompts=1", "-p", str(s.get("port") or 22), hedef,
             "--", shlex.join(["sh", "-c", betik])]
@@ -1293,7 +1474,14 @@ class Oturum:
                 break
             son = (son + [s.decode(errors="replace").rstrip()])[-20:]
         if surec.returncode not in (0, None) and son:
-            self.yay({"ev": "uyari", "metin": "\n".join(son)[-1500:]})
+            metin = "\n".join(son)[-1500:]
+            s = self.k.sunucular().get(self.sunucu) if self.sunucu else None
+            # ssh'nin kendi hatası (255): anlaşılır açıklama ve çözüm düğmesi için ayrıntı.
+            if s and surec.returncode == 255 and ssh_hata_turu(metin):
+                h = await ssh_hatasi(s, metin, "")
+                self.yay({"ev": "uyari", "metin": str(h), "ssh": h.ayrinti})
+            else:
+                self.yay({"ev": "uyari", "metin": metin})
 
     async def yaz(self, nesne: dict):
         if not self.surec or not self.surec.stdin:
@@ -1574,7 +1762,7 @@ async def cihaz_mcp_bul(s: dict) -> dict[str, list[str]]:
     """Kayıtlı sunucuda hangi LifeOS MCP'lerinin kurulu olduğuna SSH ile bak."""
     aranan = [k for komutlar, _ in CIHAZ_MCP.values() for k in komutlar]
     betik = "; ".join(f"command -v {shlex.quote(k)} || true" for k in aranan) + "; echo ATOLYE_OK"
-    kod, out, err = await calistir(ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", betik])], sure=25)
+    kod, out, err = await calistir(ssh_hedef(s) + ["--", uzak_bash(betik)], sure=25)
     if kod != 0 or "ATOLYE_OK" not in out:
         raise RuntimeError(kisa(err.strip(), 400) or "cihaza bağlanılamadı")
     bulunan = {Path(x).name: x for x in out.split() if x.startswith("/")}
@@ -3129,12 +3317,13 @@ class Kopru:
 
     def sunucular(self) -> dict[str, dict]:
         try:
-            return {s["ad"]: s for s in json.loads((EV / "sunucular.json").read_text())}
+            return sunuculari_coz(json.loads((EV / "sunucular.json").read_text()))
         except (OSError, ValueError):
             return {}
 
     def sunuculari_yaz(self, sunucular: dict[str, dict]):
-        (EV / "sunucular.json").write_text(json.dumps(list(sunucular.values()), ensure_ascii=False, indent=1))
+        temiz = [{k: v for k, v in x.items() if not k.startswith("_")} for x in sunucular.values()]
+        (EV / "sunucular.json").write_text(json.dumps(temiz, ensure_ascii=False, indent=1))
 
     def projeler(self):
         out = []
@@ -3510,7 +3699,9 @@ class Kopru:
         if op == "ssh_durum":
             pub = SSH_ANAHTAR.with_suffix(".pub")
             return {"anahtar": pub.read_text().strip() if pub.exists() else None,
-                    "ssh": bool(shutil.which("ssh")), "sunucular": list(self.sunucular().values())}
+                    "ssh": bool(shutil.which("ssh")),
+                    "sunucular": [{k: v for k, v in x.items() if not k.startswith("_")}
+                                  for x in self.sunucular().values()]}
         if op == "ssh_anahtar_olustur":
             if SSH_ANAHTAR.exists():
                 raise ValueError("anahtar zaten var")
@@ -3524,8 +3715,30 @@ class Kopru:
             if kullanici and not re.match(r"^[\w.\-]+$", kullanici):
                 raise ValueError("geçersiz kullanıcı adı")
             hepsi = self.sunucular()
+            eski_ad = m.get("eski_ad")
+            if eski_ad and eski_ad != ad and eski_ad in hepsi:
+                if ad in hepsi:
+                    raise ValueError(f"{ad} adında bir sunucu zaten var")
+                hepsi.pop(eski_ad)
+                for x in hepsi.values():  # üzerinden geçenler yeni adı izlesin
+                    if x.get("uzerinden") == eski_ad:
+                        x["uzerinden"] = ad
+            uzerinden = (m.get("uzerinden") or "").strip() or None
+            if uzerinden == eski_ad:
+                uzerinden = ad
+            if uzerinden:
+                if uzerinden == ad or uzerinden not in hepsi:
+                    raise ValueError("aradaki sunucu kayıtlı değil")
+                zincir, x = set(), uzerinden
+                while x:  # aradaki sunucu (dolaylı da olsa) bunun üzerinden gidiyorsa döngü olur
+                    if x == ad or x in zincir:
+                        raise ValueError(f"{uzerinden} zaten {ad} üzerinden bağlanıyor")
+                    zincir.add(x)
+                    x = hepsi.get(x, {}).get("uzerinden")
             hepsi[ad] = {"ad": ad, "host": host, "kullanici": kullanici or None,
                          "port": int(m.get("port") or 22), "klasor": (m.get("klasor") or "~").strip()}
+            if uzerinden:
+                hepsi[ad]["uzerinden"] = uzerinden
             self.sunuculari_yaz(hepsi)
             return {"sunucu": hepsi[ad]}
         if op == "sunucu_anahtar_gonder":
@@ -3542,6 +3755,9 @@ class Kopru:
             return await uzak_listele(s, m.get("yol") or s.get("klasor") or "~", m.get("yeni"))
         if op == "sunucu_sil":
             hepsi = self.sunucular()
+            bagli = [x["ad"] for x in hepsi.values() if x.get("uzerinden") == m.get("ad")]
+            if bagli:
+                raise ValueError(f"önce {', '.join(bagli)} kaydından \"üzerinden\" seçimini kaldır")
             hepsi.pop(m.get("ad"), None)
             self.sunuculari_yaz(hepsi)
             return {}
@@ -3549,11 +3765,18 @@ class Kopru:
             s = self.sunucular().get(m.get("ad"))
             if not s:
                 raise ValueError("sunucu bulunamadı")
-            kod, out, err = await calistir(ssh_hedef(s) + ["--", "bash -lc 'echo ATOLYE_OK; command -v claude codex git lifeos lifeos-folio lifeos_folio'"], sure=25)
+            kod, out, err = await calistir(ssh_hedef(s) + ["--", uzak_bash("echo ATOLYE_OK; command -v claude codex git lifeos lifeos-folio lifeos_folio")], sure=25)
             if kod != 0 or "ATOLYE_OK" not in out:
-                raise RuntimeError(err.strip() or "bağlanılamadı")
+                raise await ssh_hatasi(s, err, "bağlanılamadı")
             araclar = [Path(x).name for x in out.split() if x.startswith("/")]
             return {"tamam": True, "araclar": araclar}
+        if op == "sunucu_anahtar_guven":
+            s = self.sunucular().get(m.get("ad"))
+            if not s:
+                raise ValueError("sunucu bulunamadı")
+            if not str(m.get("parmak") or "").startswith("SHA256:"):
+                raise ValueError("parmak izi gerekli")
+            return await anahtara_guven(s, str(m["parmak"]))
         if op == "yukle":
             o = self._oturum(m)
             hedef_klasor = o.cwd / ".atolye" / "ekler"
@@ -3617,6 +3840,8 @@ class Kopru:
             yanit = {"no": m.get("no"), "sonuc": sonuc}
         except Exception as e:
             yanit = {"no": m.get("no"), "hata": str(e) or type(e).__name__}
+            if isinstance(e, SshHatasi):
+                yanit["hata_ayrinti"] = e.ayrinti
         try:
             await ws.send(json.dumps(yanit, ensure_ascii=False))
         except ConnectionClosed:
@@ -3689,7 +3914,7 @@ def kabuk_mcp(cihaz: str, ev: Path = EV):
     Asistan'ın Codex'i ve Claude'u bunu `--kabuk-mcp AD` ile başlatır."""
     try:
         # Codex MCP süreçlerine köprünün ortam değişkenlerini geçirmez; klasör argümanla gelir.
-        s = {x["ad"]: x for x in json.loads((ev / "sunucular.json").read_text())}.get(cihaz)
+        s = sunuculari_coz(json.loads((ev / "sunucular.json").read_text())).get(cihaz)
     except (OSError, ValueError):
         s = None
     arac = {
@@ -3718,7 +3943,7 @@ def kabuk_mcp(cihaz: str, ev: Path = EV):
         klasor = str(a.get("klasor") or "~")
         ic = f"cd {_uzak_hedef(klasor)} && {komut}"
         try:
-            r = subprocess.run(ssh_hedef(s) + ["--", shlex.join(["bash", "-lc", ic])], capture_output=True,
+            r = subprocess.run(ssh_hedef(s) + ["--", uzak_bash(ic)], capture_output=True,
                                stdin=subprocess.DEVNULL, timeout=sure)
         except subprocess.TimeoutExpired:
             return f"zaman aşımı ({sure} sn); komut uzakta sürüyor olabilir.", True

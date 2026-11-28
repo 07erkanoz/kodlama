@@ -11,6 +11,7 @@ import '../arayuz/ajan_ayarlari.dart';
 import '../arayuz/markdown.dart';
 import '../arayuz/mesaj_kutusu.dart';
 import '../arayuz/ortak.dart';
+import '../arayuz/ssh_hatasi.dart';
 import '../arayuz/yanki/yanki_figur.dart';
 import '../arayuz/yanki/yanki_paneli.dart';
 import '../model/calisma.dart';
@@ -70,9 +71,10 @@ class _BittiBlok extends _Blok {
 }
 
 class _UyariBlok extends _Blok {
-  _UyariBlok(this.metin, {this.bilgi = false});
+  _UyariBlok(this.metin, {this.bilgi = false, this.ssh});
   final String metin;
   final bool bilgi;
+  final Map<String, dynamic>? ssh;
 }
 
 List<_Blok> _bloklar(List<Oge> ogeler) {
@@ -122,7 +124,7 @@ List<_Blok> _bloklar(List<Oge> ogeler) {
         out.add(_BittiBlok(o, turMetni.join('\n\n')));
         turMetni.clear();
       case UyariOge():
-        out.add(_UyariBlok(o.metin, bilgi: o.bilgi));
+        out.add(_UyariBlok(o.metin, bilgi: o.bilgi, ssh: o.ssh));
     }
   }
   return out;
@@ -773,6 +775,10 @@ class _SohbetGorunumuState extends State<SohbetGorunumu> {
       inceletEtiketi: s.ajan == 'claude'
           ? "Codex'e incelet"
           : "Claude'a incelet",
+    ),
+    _UyariBlok(:final metin, :final ssh?) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: SshHataKarti(calisma: widget.calisma, mesaj: metin, ayrinti: ssh),
     ),
     _UyariBlok(:final metin, :final bilgi) => _UyariSatiri(
       metin: metin,

@@ -110,6 +110,10 @@ class Ayarlar {
 
   static String? _bos(String? v) => v == null || v.isEmpty ? null : v;
 
+  /// Uygulama genelinde tam ekran: sistem çubukları gizli.
+  bool get tamEkran => _p.getBool('tamEkran') ?? false;
+  set tamEkran(bool v) => _p.setBool('tamEkran', v);
+
   /// Sesli konuşma (Yankı görünümünde) doğrudan tam ekran açılsın mı.
   bool get sesTamEkran => _p.getBool('sesTamEkran') ?? true;
   set sesTamEkran(bool v) => _p.setBool('sesTamEkran', v);

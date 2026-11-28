@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../model/calisma.dart';
+import 'ssh_hatasi.dart';
 
 /// Kayıtlı bir SSH sunucusunda klasör seçtirir: klasörler SSH üzerinden
 /// listelenir, dokunarak içine girilir, "Bu klasör" ile seçilir. Köprü
@@ -71,6 +72,7 @@ class _UzakKlasorSeciciState extends State<_UzakKlasorSecici> {
   bool _git = false;
   List<String> _klasorler = const [];
   String? _hata;
+  Map<String, dynamic>? _sshHata;
   bool _yukleniyor = false;
   bool _gizliler = false;
 
@@ -86,6 +88,7 @@ class _UzakKlasorSeciciState extends State<_UzakKlasorSecici> {
     setState(() {
       _yukleniyor = true;
       _hata = null;
+      _sshHata = null;
     });
     try {
       final r = await widget.calisma.istemci.iste('sunucu_listele', {
@@ -101,7 +104,12 @@ class _UzakKlasorSeciciState extends State<_UzakKlasorSecici> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _hata = '$e'.replaceFirst('Exception: ', ''));
+      setState(() {
+        _hata = '$e'.replaceFirst('Exception: ', '');
+        _sshHata = sshAyrintisi(e);
+      });
+      // SSH'nin kendisi kurulamadıysa başka klasör denemenin anlamı yok.
+      if (_sshHata != null) return;
       // Açılamayan yol ilk açılıştaysa ev klasörüne düş.
       if (_yol == null && yol != '~') {
         await _ac('~');
@@ -247,7 +255,17 @@ class _UzakKlasorSeciciState extends State<_UzakKlasorSecici> {
               ),
             ),
             if (_yukleniyor) const LinearProgressIndicator(minHeight: 2),
-            if (_hata != null)
+            if (_sshHata != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                child: SshHataKarti(
+                  calisma: widget.calisma,
+                  mesaj: _hata ?? '',
+                  ayrinti: _sshHata!,
+                  cozuldu: () => _ac(_yol ?? widget.baslangic),
+                ),
+              )
+            else if (_hata != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: Text(_hata!, style: TextStyle(color: r.error)),

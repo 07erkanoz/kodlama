@@ -106,3 +106,38 @@ Future<bool> guncellemeyiKur(
   await Termux.apkKur(yol);
   return true;
 }
+
+/// Süren bir güncelleme indirmesinin durumu: ana ekrandaki şerit de Ayarlar
+/// da aynı indirmeyi gösterir (biri başlatınca öteki ilerlemeyi görür).
+class IndirmeDurumu {
+  const IndirmeDurumu({this.calisiyor = false, this.oran, this.hata});
+  final bool calisiyor;
+
+  /// 0..1; boyut bilinmiyorsa null.
+  final double? oran;
+  final String? hata;
+}
+
+final guncellemeIndirmesi = ValueNotifier(const IndirmeDurumu());
+
+/// [s]'yi indirip kurulum ekranını açar; durumu [guncellemeIndirmesi]'ne
+/// yazar. Zaten bir indirme sürüyorsa bir şey yapmaz.
+Future<void> guncellemeyiBaslat(Surum s) async {
+  if (guncellemeIndirmesi.value.calisiyor) return;
+  guncellemeIndirmesi.value = const IndirmeDurumu(calisiyor: true);
+  try {
+    final tamam = await guncellemeyiKur(
+      s,
+      ilerleme: (o) =>
+          guncellemeIndirmesi.value = IndirmeDurumu(calisiyor: true, oran: o),
+    );
+    guncellemeIndirmesi.value = IndirmeDurumu(
+      hata: tamam
+          ? null
+          : 'Atölye\'ye "bilinmeyen uygulamaları yükle" izni ver, '
+                'sonra yeniden dene.',
+    );
+  } catch (e) {
+    guncellemeIndirmesi.value = IndirmeDurumu(hata: 'Kurulamadı: $e');
+  }
+}

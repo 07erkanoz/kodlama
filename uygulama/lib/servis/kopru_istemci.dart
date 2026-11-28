@@ -7,8 +7,11 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 enum BaglantiDurumu { kapali, baglaniyor, bagli, yetkisiz }
 
 class KopruHatasi implements Exception {
-  KopruHatasi(this.mesaj);
+  KopruHatasi(this.mesaj, {this.ayrinti});
   final String mesaj;
+
+  /// Köprünün verdiği yapılandırılmış ayrıntı (ör. SSH hatasının türü).
+  final Map<String, dynamic>? ayrinti;
   @override
   String toString() => mesaj;
 }
@@ -216,7 +219,13 @@ class KopruIstemci {
     Map<String, dynamic> params = const {},
   ]) async {
     final yanit = await _istek({'op': op, ...params});
-    if (yanit['hata'] != null) throw KopruHatasi(yanit['hata'].toString());
+    if (yanit['hata'] != null) {
+      final a = yanit['hata_ayrinti'];
+      throw KopruHatasi(
+        yanit['hata'].toString(),
+        ayrinti: a is Map ? a.cast<String, dynamic>() : null,
+      );
+    }
     return (yanit['sonuc'] as Map?)?.cast<String, dynamic>() ?? const {};
   }
 

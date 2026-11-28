@@ -1,3 +1,5 @@
+import '../tam_ekran.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -118,7 +120,7 @@ class _YankiEkraniState extends State<YankiEkrani> {
 
   @override
   void dispose() {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    sistemCubuklariniUygula(); // kullanıcının seçimine (tam ekran ya da değil) dön
     super.dispose();
   }
 

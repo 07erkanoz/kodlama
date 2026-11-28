@@ -72,8 +72,11 @@ class BittiOge extends Oge {
 }
 
 class UyariOge extends Oge {
-  UyariOge(this.metin, {this.bilgi = false});
+  UyariOge(this.metin, {this.bilgi = false, this.ssh});
   final String metin;
+
+  /// SSH hatasıysa köprünün ayrıntısı (çözüm düğmesi için).
+  final Map<String, dynamic>? ssh;
 
   /// Hata değil, bilgi notu (ör. "İşi yapan: Claude", "Cihaz: ofis").
   final bool bilgi;
@@ -378,7 +381,11 @@ class Sohbet extends ChangeNotifier {
         );
       case 'uyari':
         ogeler.add(
-          UyariOge(e['metin'] as String? ?? '', bilgi: e['bilgi'] == true),
+          UyariOge(
+            e['metin'] as String? ?? '',
+            bilgi: e['bilgi'] == true,
+            ssh: (e['ssh'] as Map?)?.cast<String, dynamic>(),
+          ),
         );
       case 'durum':
         if (e['durum'] == 'calisiyor' && !calisiyor) turBasi = DateTime.now();
