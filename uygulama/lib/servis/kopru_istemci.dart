@@ -36,6 +36,19 @@ class KopruIstemci {
   Timer? _tekrar;
   int _deneme = 0;
 
+  // Olay sırası (köprü 0.13+): köprü her olaya artan bir numara verir.
+  // Yeniden bağlanırken son görülen numara söylenir, arada kaçanlar gelir.
+  String? _kopruKimlik;
+  int? _sira;
+  int? _selamNo;
+
+  /// Son bağlanışta kaçan olaylar köprüden geldi mi (geldiyse geçmişi
+  /// yeniden yüklemeye gerek yok).
+  bool devam = false;
+
+  /// Bağlanırken köprüde bekleyen onaylar; eski köprüde null.
+  List<Map<String, dynamic>>? acikOnaylar;
+
   Uri get _wsAdres => Uri.parse('ws://127.0.0.1:$port');
 
   /// Köprünün sunduğu bir dosyanın adresi (resim, PDF…).
@@ -80,7 +93,12 @@ class KopruIstemci {
         onDone: _koptu,
         onError: (_) => _koptu(),
       );
-      final yanit = await _istek({'op': 'hello', 'token': token});
+      final yanit = await _istek({
+        'op': 'hello',
+        'token': token,
+        if (_kopruKimlik != null) 'kimlik': _kopruKimlik,
+        if (_sira != null) 'son': _sira,
+      }, selam: true);
       if (yanit['hata'] != null) {
         durum.value = BaglantiDurumu.yetkisiz;
         _kapatildi = true;
@@ -103,10 +121,36 @@ class KopruIstemci {
     }
     final no = m['no'];
     if (no is int && _bekleyen.containsKey(no)) {
+      // Selam yanıtı burada, eşzamanlı işlenir: hemen ardından gelen
+      // kaçan olaylar doğru sırayla değerlendirilsin.
+      if (no == _selamNo) _selamIsle(m);
       _bekleyen.remove(no)!.complete(m);
       return;
     }
-    if (m['ev'] != null) _olaylar.add(m);
+    if (m['ev'] != null) {
+      final s = m['sira'];
+      if (s is int) {
+        final son = _sira;
+        if (son != null && s <= son) return; // zaten görüldü
+        _sira = s;
+      }
+      _olaylar.add(m);
+    }
+  }
+
+  void _selamIsle(Map<String, dynamic> m) {
+    _selamNo = null;
+    final s = m['sonuc'];
+    if (m['hata'] != null || s is! Map) return;
+    final kimlik = s['kimlik'] as String?;
+    devam = s['devam'] == true && kimlik != null && kimlik == _kopruKimlik;
+    _kopruKimlik = kimlik;
+    // Devam edilmiyorsa sıra köprünün şimdiki numarasından başlar.
+    if (!devam) _sira = s['sira'] as int?;
+    final o = s['onaylar'];
+    acikOnaylar = o is List
+        ? [for (final x in o.whereType<Map>()) x.cast<String, dynamic>()]
+        : null;
   }
 
   void _koptu() {
@@ -144,10 +188,14 @@ class KopruIstemci {
     'mcp_ekle',
   };
 
-  Future<Map<String, dynamic>> _istek(Map<String, dynamic> m) {
+  Future<Map<String, dynamic>> _istek(
+    Map<String, dynamic> m, {
+    bool selam = false,
+  }) {
     final kanal = _kanal;
     if (kanal == null) return Future.error(KopruHatasi('bağlı değil'));
     final no = ++_no;
+    if (selam) _selamNo = no;
     final c = Completer<Map<String, dynamic>>();
     _bekleyen[no] = c;
     kanal.sink.add(jsonEncode({...m, 'no': no}));

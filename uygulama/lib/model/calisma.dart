@@ -38,7 +38,7 @@ class Calisma extends ChangeNotifier {
 
   /// Bu uygulamanın beklediği en düşük köprü sürümü. Köprüye yeni bir işlem
   /// eklenince artırılır; telefondaki köprü daha eskiyse güncelleme önerilir.
-  static const gerekenKopruSurumu = '0.12.0';
+  static const gerekenKopruSurumu = '0.13.0';
   String? kopruSurumu;
   bool kopruGuncelleniyor = false;
   KurulumSunucusu? _kurulumSunucusu;
@@ -120,10 +120,16 @@ class Calisma extends ChangeNotifier {
 
   void _durumDegisti() {
     if (baglanti == BaglantiDurumu.bagli) {
+      // Köprüde bekleyen onaylar: uygulama yeniden açıldıysa ya da bağlantı
+      // koptuysa bildirim ve widget bu listeyle tazelenir.
+      final onaylar = istemci.acikOnaylar;
+      if (onaylar != null) {
+        _olayAkisi.add({'ev': 'onaylar_esitle', 'onaylar': onaylar});
+      }
       yenile();
       // Bağlantı koptuysa (telefon uyudu, köprü yeniden başladı) arada kaçan
-      // olaylar açık sohbete geçmiştan geri yüklenir.
-      if (_baglanmisti) secili?.gecmisiYukle();
+      // olaylar köprüden gelir; gelemediyse açık sohbet geçmişten yüklenir.
+      if (_baglanmisti && !istemci.devam) secili?.gecmisiYukle();
       _baglanmisti = true;
     }
     notifyListeners();

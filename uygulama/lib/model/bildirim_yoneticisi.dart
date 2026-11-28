@@ -139,13 +139,42 @@ class BildirimYoneticisi {
 
   // --- olay bildirimleri (uygulama ekranda değilken)
 
+  /// Köprünün bekleyen onay listesi: elimizdekinin yerine geçer.
+  void _esitle(List onaylar) {
+    final eski = {
+      for (final l in _onaylar.values)
+        for (final x in l) '${x['oturum']}|${x['rid']}',
+    };
+    final eskiOturumlar = _onaylar.keys.toSet();
+    _onaylar.clear();
+    for (final x in onaylar.whereType<Map>()) {
+      final oturum = x['oturum'] as String?;
+      if (oturum == null || x['rid'] == null) continue;
+      (_onaylar[oturum] ??= []).add(x.cast<String, dynamic>());
+    }
+    onayDegisti.value++;
+    if (_onde) return;
+    for (final o in {...eskiOturumlar, ..._onaylar.keys}) {
+      final ilk = _onaylar[o]?.firstOrNull;
+      // Yeni çıkan ya da kapanan onayların bildirimi güncellenir.
+      if (ilk == null || !eski.contains('$o|${ilk['rid']}')) _onayGoster(o);
+    }
+  }
+
   void _olay(Map<String, dynamic> e) {
+    if (e['ev'] == 'onaylar_esitle') {
+      _esitle(e['onaylar'] as List);
+      return;
+    }
     final oturum = e['oturum'] as String?;
     // Bekleyen onaylar uygulama öndeyken de izlenir: arka plana geçince
     // bildirimden verilebilsin.
     if (oturum != null) {
       if (e['ev'] == 'onay' && e['rid'] != null) {
-        (_onaylar[oturum] ??= []).add(e);
+        final liste = _onaylar[oturum] ??= [];
+        // Eşitleme listesinde zaten varsa (kaçan olaylar yeniden gelirken) ekleme.
+        if (liste.any((x) => x['rid'] == e['rid'])) return;
+        liste.add(e);
         onayDegisti.value++;
       } else if (e['ev'] == 'onay_kapandi') {
         final liste = _onaylar[oturum];

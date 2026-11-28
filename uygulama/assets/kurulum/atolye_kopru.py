@@ -52,7 +52,7 @@ from websockets.datastructures import Headers
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Response
 
-SURUM = "0.12.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
+SURUM = "0.13.0"  # uygulama gerekenKopruSurumu ile karşılaştırır; köprü değişince artır
 # Uygulama sürüm numarasına değil, köprünün bu listesine bakar: bir özelliği olmayan
 # eski köprüde eski yola (Termux penceresi) düşer.
 YETENEKLER = ["kur", "giris", "kopru_guncelle", "ses", "derleme", "duzenle", "terminal", "mcp", "asistan", "uzak_klasor", "kota_oku", "uzak_dosya", "bildirim_onay", "zamanlanmis", "ara", "kullanim"]
@@ -2415,6 +2415,17 @@ class Kopru:
     def __init__(self, token: str):
         self.token = token
         self.istemciler: set = set()
+        # Olay sırası: her yayına artan bir numara verilir, son olaylar tamponda
+        # durur. Bağlantısı kopan uygulama "son gördüğüm şu" der, arası yeniden
+        # gönderilir. Kimlik köprü her açıldığında değişir (sıra baştan başlar).
+        self.kimlik = secrets.token_hex(6)
+        self.sira = 0
+        self.tampon: deque[tuple[int, str]] = deque()
+        self._tampon_boy = 0
+        self._kilitler: dict = {}  # istemci → gönderim kilidi (sıra bozulmasın)
+        # Bekleyen onaylar: (oturum, rid) → onay olayı. Uygulama yeniden
+        # açılınca ya da bağlanınca bu listeyle bildirimi ve widget'ı tazeler.
+        self.acik_onaylar: dict[tuple, dict] = {}
         self.oturumlar: dict[str, Oturum] = {}
         self.kotalar: dict[str, list] = {}
         self._kota_okundu = 0.0
@@ -2642,16 +2653,47 @@ class Kopru:
 
     # --- yayın
 
+    TAMPON_SINIRI = 2_000_000  # yeniden gönderim için tutulan olaylar (bayt)
+
     def yayinla(self, olay: dict):
-        veri = json.dumps(olay, ensure_ascii=False)
+        ev, oid = olay.get("ev"), olay.get("oturum")
+        if ev == "onay" and olay.get("rid"):
+            self.acik_onaylar[(oid, olay["rid"])] = olay
+        elif ev == "onay_kapandi":
+            self.acik_onaylar.pop((oid, olay.get("rid")), None)
+        elif ev == "bitti" and oid:
+            # Uygulama da tur bitince oturumun onaylarını düşürür.
+            for k in [k for k in self.acik_onaylar if k[0] == oid]:
+                del self.acik_onaylar[k]
+        self.sira += 1
+        veri = json.dumps({**olay, "sira": self.sira}, ensure_ascii=False)
+        self.tampon.append((self.sira, veri))
+        self._tampon_boy += len(veri)
+        while self._tampon_boy > self.TAMPON_SINIRI and len(self.tampon) > 1:
+            self._tampon_boy -= len(self.tampon.popleft()[1])
         for ws in list(self.istemciler):
             asyncio.create_task(self._gonder(ws, veri))
 
     async def _gonder(self, ws, veri):
+        kilit = self._kilitler.get(ws)
         try:
-            await ws.send(veri)
+            if kilit is None:
+                await ws.send(veri)
+            else:
+                async with kilit:
+                    await ws.send(veri)
         except ConnectionClosed:
             self.istemciler.discard(ws)
+
+    def kacanlar(self, kimlik, son) -> list[str] | None:
+        """İstemcinin kaçırdığı olaylar; tamamı tamponda değilse None (baştan yüklesin)."""
+        if kimlik != self.kimlik or not isinstance(son, int) or isinstance(son, bool) or son > self.sira:
+            return None
+        if son == self.sira:
+            return []
+        if not self.tampon or self.tampon[0][0] > son + 1:
+            return None
+        return [v for s, v in self.tampon if s > son]
 
     def baslik_ver(self, o, metin: str):
         """Oturumun başlığı ilk mesajdan (Asistan'da ilk söylenenden) gelir."""
@@ -3539,8 +3581,23 @@ class Kopru:
             await ws.send(json.dumps({"no": ilk.get("no"), "hata": "yetkisiz"}))
             await ws.close(4401, "yetkisiz")
             return
-        await ws.send(json.dumps({"no": ilk.get("no"), "sonuc": {"surum": SURUM}}))
-        self.istemciler.add(ws)
+        # Kilit tutulurken yeni olaylar bekler: önce selam, sonra kaçanlar,
+        # sonra canlı olaylar, sırası bozulmadan.
+        kilit = self._kilitler[ws] = asyncio.Lock()
+        async with kilit:
+            kacan = self.kacanlar(ilk.get("kimlik"), ilk.get("son"))
+            self.istemciler.add(ws)
+            try:
+                await ws.send(json.dumps({"no": ilk.get("no"), "sonuc": {
+                    "surum": SURUM, "kimlik": self.kimlik, "sira": self.sira,
+                    "devam": kacan is not None, "onaylar": list(self.acik_onaylar.values()),
+                }}, ensure_ascii=False))
+                for v in kacan or []:
+                    await ws.send(v)
+            except ConnectionClosed:
+                self.istemciler.discard(ws)
+                self._kilitler.pop(ws, None)
+                return
         try:
             async for ham in ws:
                 try:
@@ -3552,6 +3609,7 @@ class Kopru:
             pass
         finally:
             self.istemciler.discard(ws)
+            self._kilitler.pop(ws, None)
 
     async def _yanitla(self, ws, m):
         try:
