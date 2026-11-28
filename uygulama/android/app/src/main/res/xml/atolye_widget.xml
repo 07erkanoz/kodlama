@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Küçük Atölye widget'ı (2×2); kenarlarından çekilerek tam genişliğe kadar büyür. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_kucuk"
+    android:previewLayout="@layout/widget_kucuk"
+    android:description="@string/widget_aciklama"
+    android:configure="tr.com.lifeos.atolye.WidgetAyarEtkinligi"
+    android:widgetFeatures="reconfigurable|configuration_optional"
+    android:widgetCategory="home_screen" />

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ayrıntılı Atölye widget'ı (4×3): onay kartı, oturumlar, kota; boyutu serbest. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_buyuk"
+    android:previewLayout="@layout/widget_buyuk"
+    android:description="@string/widget_aciklama_buyuk"
+    android:configure="tr.com.lifeos.atolye.WidgetAyarEtkinligi"
+    android:widgetFeatures="reconfigurable|configuration_optional"
+    android:widgetCategory="home_screen" />

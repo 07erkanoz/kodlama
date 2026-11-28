@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_aciklama">Çalışan ajanlar, bekleyen onaylar ve sesli konuşma</string>
+    <string name="widget_aciklama_buyuk">Onay kartı, son oturumlar ve kullanım sınırları</string>
+</resources>

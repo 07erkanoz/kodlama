@@ -37,11 +37,22 @@ class MainActivity : FlutterActivity() {
     /** Kısayoldan ("Konuş") açıldıysa: Dart açılışta sesi başlatır. */
     private var acilisSes = false
 
+    /** Widget düğmesiyle açıldıysa: "yeni", "ara" ya da "widgetAyar" (Dart bir kez alır). */
+    private var acilisEylem: String? = null
+
+    private fun eylemAdi(niyet: Intent?): String? = when (niyet?.action) {
+        AtolyeWidget.YENI -> "yeni"
+        AtolyeWidget.ARA -> "ara"
+        AtolyeWidget.AYAR -> "widgetAyar"
+        else -> null
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         Bildirimler.kanallariKur(this)
         acilisOturumu = intent?.getStringExtra(Bildirimler.EK_OTURUM)
         acilisSes = intent?.action == Bildirimler.SES
+        acilisEylem = eylemAdi(intent)
         paylasim = Paylasim(this, flutterEngine.dartExecutor.binaryMessenger).also { it.isle(intent) }
         Pano(this, flutterEngine.dartExecutor.binaryMessenger)
         bildirimKanali = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "atolye/bildirim").apply {
@@ -146,6 +157,28 @@ class MainActivity : FlutterActivity() {
                     "acilisSes" -> {
                         result.success(acilisSes)
                         acilisSes = false
+                    }
+                    "acilisEylem" -> {
+                        result.success(acilisEylem)
+                        acilisEylem = null
+                    }
+                    "widget" -> {
+                        AtolyeWidget.kaydet(this@MainActivity, call.argument<String>("json") ?: "{}")
+                        result.success(null)
+                    }
+                    "widgetVar" -> result.success(AtolyeWidget.ekliMi(this@MainActivity))
+                    "widgetEkle" -> {
+                        // Android 8+: başlatıcının "ana ekrana ekle" sorusu.
+                        val yonetici = android.appwidget.AppWidgetManager.getInstance(this@MainActivity)
+                        val sinif = if (call.argument<Boolean>("buyuk") == true) AtolyeWidgetBuyuk::class.java
+                                    else AtolyeWidget::class.java
+                        result.success(
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                                yonetici.isRequestPinAppWidgetSupported &&
+                                yonetici.requestPinAppWidget(
+                                    android.content.ComponentName(this@MainActivity, sinif), null, null,
+                                )
+                        )
                     }
                     else -> result.notImplemented()
                 }
@@ -288,6 +321,7 @@ class MainActivity : FlutterActivity() {
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         if (Bildirimler.kanal === bildirimKanali) Bildirimler.kanal = null
+        AtolyeWidget.hepsiniGuncelle(this)
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -296,6 +330,10 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         if (intent.action == Bildirimler.SES) {
             bildirimKanali?.invokeMethod("ses", null)
+            return
+        }
+        eylemAdi(intent)?.let {
+            bildirimKanali?.invokeMethod("eylem", it)
             return
         }
         if (paylasim?.isle(intent) == true) return

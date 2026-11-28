@@ -92,8 +92,8 @@ object Bildirimler {
         return b.build()
     }
 
-    /** Onay bildirimindeki düğmenin niyeti: kararı OnayAlici üzerinden Dart'a iletir. */
-    private fun kararNiyeti(baglam: Context, kimlik: Int, oturum: String, rid: String, karar: String): PendingIntent {
+    /** Onay düğmesinin (bildirim ya da widget) niyeti: kararı OnayAlici üzerinden Dart'a iletir. */
+    fun kararNiyeti(baglam: Context, kimlik: Int, oturum: String, rid: String, karar: String): PendingIntent {
         val niyet = Intent(baglam, OnayAlici::class.java).apply {
             action = "tr.com.lifeos.atolye.KARAR.$karar"
             putExtra("kimlik", kimlik)
@@ -186,6 +186,9 @@ class AtolyeServisi : Service() {
             calisiyor = false
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
+            // Widget "kapalı" gösterilsin (süreç birazdan biter).
+            Bildirimler.kanal = null
+            AtolyeWidget.hepsiniGuncelle(this)
             // Kullanıcı Atölye'yi bilerek kapattı: ekran ve süreç de kapansın.
             android.os.Process.killProcess(android.os.Process.myPid())
             return START_NOT_STICKY

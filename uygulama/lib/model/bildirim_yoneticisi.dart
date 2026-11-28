@@ -22,7 +22,12 @@ class BildirimYoneticisi {
     c.kurulum.addListener(_servisiGuncelle);
     SesliKonusma.herhangiAcik.addListener(_servisiGuncelle);
     _abone = c.olaylar.listen(_olay);
-    Bildirim.dinle(acildi: _oturumuAc, karar: _karar, ses: _ses);
+    Bildirim.dinle(
+      acildi: _oturumuAc,
+      karar: _karar,
+      ses: _ses,
+      eylem: (e) => eylem?.call(e),
+    );
     unawaited(_acilistaOturum());
   }
 
@@ -35,6 +40,16 @@ class BildirimYoneticisi {
 
   /// Oturum → bekleyen onaylar (sırayla); bildirimde ilki gösterilir.
   final _onaylar = <String, List<Map<String, dynamic>>>{};
+
+  /// Bekleyen onaylar (widget da gösterir); değişince [onayDegisti] tetiklenir.
+  Map<String, List<Map<String, dynamic>>> get onaylar => _onaylar;
+  final onayDegisti = ValueNotifier<int>(0);
+
+  /// Widget düğmeleri ('yeni', 'ara', 'widgetAyar', 'widgetYenile'); WidgetYoneticisi bağlar.
+  void Function(String eylem)? eylem;
+
+  /// Bildirim kimliği: widget'tan verilen onay da aynı bildirimi kaldırır.
+  static int kimlik(String? oturum) => _kimlik(oturum);
 
   void dispose() {
     _yasam.dispose();
@@ -131,15 +146,17 @@ class BildirimYoneticisi {
     if (oturum != null) {
       if (e['ev'] == 'onay' && e['rid'] != null) {
         (_onaylar[oturum] ??= []).add(e);
+        onayDegisti.value++;
       } else if (e['ev'] == 'onay_kapandi') {
         final liste = _onaylar[oturum];
         final ilkti = liste?.firstOrNull?['rid'] == e['rid'];
         liste?.removeWhere((x) => x['rid'] == e['rid']);
         if (liste != null && liste.isEmpty) _onaylar.remove(oturum);
+        onayDegisti.value++;
         if (ilkti && !_onde) _onayGoster(oturum);
         return;
       } else if (e['ev'] == 'bitti') {
-        _onaylar.remove(oturum);
+        if (_onaylar.remove(oturum) != null) onayDegisti.value++;
       }
     }
     if (_onde) return;

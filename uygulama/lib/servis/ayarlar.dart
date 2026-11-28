@@ -125,6 +125,30 @@ class Ayarlar {
   bool get guncellemeDenetle => _p.getBool('guncellemeDenetle') ?? true;
   set guncellemeDenetle(bool v) => _p.setBool('guncellemeDenetle', v);
 
+  /// Ana ekran widget'ı: saydamlık (0–100), köşe (dp), tema ('koyu', 'acik',
+  /// 'sistem', 'duvar'), oturum satırı (0: sığdığı kadar), onay kartı, kota.
+  int get widgetSaydamlik => _p.getInt('widgetSaydamlik') ?? 28;
+  set widgetSaydamlik(int v) => _p.setInt('widgetSaydamlik', v);
+  int get widgetKose => _p.getInt('widgetKose') ?? 20;
+  set widgetKose(int v) => _p.setInt('widgetKose', v);
+  String get widgetTema => _p.getString('widgetTema') ?? 'koyu';
+  set widgetTema(String v) => _p.setString('widgetTema', v);
+  int get widgetOturum => _p.getInt('widgetOturum') ?? 0;
+  set widgetOturum(int v) => _p.setInt('widgetOturum', v);
+  bool get widgetOnay => _p.getBool('widgetOnay') ?? true;
+  set widgetOnay(bool v) => _p.setBool('widgetOnay', v);
+  bool get widgetKota => _p.getBool('widgetKota') ?? true;
+  set widgetKota(bool v) => _p.setBool('widgetKota', v);
+
+  Map<String, dynamic> get widgetAyari => {
+    'saydamlik': widgetSaydamlik,
+    'kose': widgetKose,
+    'tema': widgetTema,
+    'oturum': widgetOturum,
+    'onay': widgetOnay,
+    'kota': widgetKota,
+  };
+
   bool get kurulumBitti => _p.getBool('kurulumBitti') ?? false;
   set kurulumBitti(bool v) => _p.setBool('kurulumBitti', v);
 

@@ -131,6 +131,14 @@ class Calisma extends ChangeNotifier {
 
   void _olay(Map<String, dynamic> e) {
     _olayAkisi.add(e);
+    // Başka yerden (zamanlayıcı, başka istemci) açılmış bir oturumdan olay:
+    // listeyi tazele ki widget ve bildirimler adını, durumunu bilsin.
+    final oid = e['oturum'];
+    if (oid is String &&
+        e['ev'] != 'oturum' &&
+        !oturumlar.any((o) => o['id'] == oid)) {
+      _bilinmeyenOturum();
+    }
     switch (e['ev']) {
       case 'kota':
         kotalar = {...kotalar, e['ajan'] as String: e['pencereler'] as List};
@@ -162,6 +170,16 @@ class Calisma extends ChangeNotifier {
           notifyListeners();
         }
     }
+  }
+
+  DateTime _sonTazeleme = DateTime(0);
+
+  /// Tanınmayan oturumdan gelen olaylarda en çok 5 saniyede bir yenile.
+  void _bilinmeyenOturum() {
+    final simdi = DateTime.now();
+    if (simdi.difference(_sonTazeleme) < const Duration(seconds: 5)) return;
+    _sonTazeleme = simdi;
+    unawaited(yenile());
   }
 
   Future<void> yenile() async {

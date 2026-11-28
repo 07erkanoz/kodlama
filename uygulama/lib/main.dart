@@ -7,6 +7,7 @@ import 'ekran/kurulum_ekrani.dart';
 import 'ekran/paylasim_yoneticisi.dart';
 import 'model/bildirim_yoneticisi.dart';
 import 'model/calisma.dart';
+import 'model/widget_yoneticisi.dart';
 import 'servis/ayarlar.dart';
 
 Future<void> main() async {
@@ -15,8 +16,10 @@ Future<void> main() async {
   final ayarlar = await Ayarlar.yukle();
   final calisma = Calisma(ayarlar);
   // Ajan çalışırken kalıcı bildirim, onay/sonuç bildirimleri; uygulama boyunca yaşar.
-  BildirimYoneticisi(calisma);
+  final bildirim = BildirimYoneticisi(calisma);
   final gezgin = GlobalKey<NavigatorState>();
+  // Ana ekran widget'ı: durumu gönderir, düğmelerini karşılar.
+  WidgetYoneticisi(calisma, bildirim, gezgin);
   // Paylaş menüsünden gelenler (kurulum bitmişse).
   if (ayarlar.kurulumBitti) PaylasimYoneticisi(calisma, gezgin);
   runApp(AtolyeUygulamasi(calisma: calisma, gezgin: gezgin));

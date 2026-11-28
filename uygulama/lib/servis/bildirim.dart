@@ -81,12 +81,30 @@ abstract final class Bildirim {
   /// Uygulama bir bildirime dokunularak açıldıysa o oturum (bir kez).
   static Future<String?> acilisOturumu() => _cagir<String>('acilisOturumu');
 
+  /// Uygulama bir widget düğmesiyle açıldıysa: 'yeni', 'ara' ya da
+  /// 'widgetAyar' (bir kez).
+  static Future<String?> acilisEylem() => _cagir<String>('acilisEylem');
+
+  /// Ana ekran widget'ının göstereceği anlık durum (AtolyeWidget.kt okur).
+  static Future<void> widget(String json) =>
+      _cagir<void>('widget', {'json': json});
+
+  /// Ana ekranda en az bir Atölye widget'ı var mı.
+  static Future<bool> widgetVar() async =>
+      await _cagir<bool>('widgetVar') ?? false;
+
+  /// Başlatıcının "ana ekrana ekle" sorusunu açar; desteklenmiyorsa false.
+  static Future<bool> widgetEkle({bool buyuk = false}) async =>
+      await _cagir<bool>('widgetEkle', {'buyuk': buyuk}) ?? false;
+
   /// Uygulama açıkken bir bildirime dokunulunca [acildi], onay bildirimindeki
-  /// bir düğmeye basılınca [karar] çağrılır.
+  /// bir düğmeye basılınca [karar], widget düğmelerinde [eylem] ('yeni',
+  /// 'ara', 'widgetAyar', 'widgetYenile') çağrılır.
   static void dinle({
     required void Function(String oturum) acildi,
     required void Function(String oturum, String rid, String karar) karar,
     required void Function() ses,
+    required void Function(String eylem) eylem,
   }) {
     if (!destekleniyor) return;
     _kanal.setMethodCallHandler((cagri) async {
@@ -97,6 +115,10 @@ abstract final class Bildirim {
         karar('${a['oturum']}', '${a['rid']}', '${a['karar']}');
       } else if (cagri.method == 'ses') {
         ses();
+      } else if (cagri.method == 'eylem' && a is String) {
+        eylem(a);
+      } else if (cagri.method == 'widgetYenile') {
+        eylem('widgetYenile');
       }
     });
   }

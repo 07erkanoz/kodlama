@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: tool/widget_yerlesim.py, elle düzenlemeyin. Renkler ve görünürlük AtolyeWidget.kt'de ayarlanır. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/kok" android:layout_width="match_parent" android:layout_height="match_parent">
+    <ImageView android:id="@+id/arka" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/widget_arka_20" android:tint="#14141C" android:importantForAccessibility="no"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:padding="14dp">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="22dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <ImageView android:id="@+id/simge" android:layout_width="16dp" android:layout_height="16dp"
+                android:src="@drawable/ic_bildirim" android:tint="#8B8CF8" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/ad" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="6dp" android:text="Atölye" android:textSize="14sp"
+                android:textStyle="bold" android:textColor="#ECEBFF" android:maxLines="1"/>
+            <TextView android:id="@+id/alt_baslik" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp" android:text="· köprü bağlı" android:textSize="11sp" android:textColor="#A9A8C4" android:maxLines="1" android:ellipsize="end"/>
+            <ImageView android:id="@+id/nokta" android:layout_width="8dp" android:layout_height="8dp"
+                android:src="@drawable/widget_nokta" android:tint="#5DCAA5" android:importantForAccessibility="no"/>
+            <ImageView android:id="@+id/yenile" android:layout_width="28dp" android:layout_height="22dp"
+                android:paddingStart="8dp" android:paddingEnd="2dp" android:src="@drawable/wi_yenile" android:tint="#A9A8C4"
+                android:contentDescription="Yenile"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/onay" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp" android:orientation="vertical" android:padding="10dp"
+            android:background="@drawable/widget_onay_kart">
+            <TextView android:id="@+id/onay_baslik" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Codex · avukathesap" android:textSize="12sp" android:textColor="#FAC775"
+                android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/onay_metin" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:text="npm install çalıştırmak istiyor" android:textSize="13sp"
+                android:textColor="#ECEBFF" android:maxLines="2" android:ellipsize="end"/>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:orientation="horizontal">
+            <LinearLayout android:id="@+id/izin" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" 
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="İzin ver">
+                <ImageView android:id="@+id/izin_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_ekle" android:visibility="gone" android:importantForAccessibility="no"/>
+                <TextView android:id="@+id/izin_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:text="İzin ver" android:textSize="12sp" android:textColor="#ECEBFF" android:maxLines="1"/>
+            </LinearLayout>
+            <LinearLayout android:id="@+id/hep" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginStart="6dp"
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="Bu oturumda hep">
+                <ImageView android:id="@+id/hep_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_ekle" android:visibility="gone" android:importantForAccessibility="no"/>
+                <TextView android:id="@+id/hep_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:text="Bu oturumda hep" android:textSize="12sp" android:textColor="#ECEBFF" android:maxLines="1"/>
+            </LinearLayout>
+            <LinearLayout android:id="@+id/red" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginStart="6dp"
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="Reddet">
+                <ImageView android:id="@+id/red_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_ekle" android:visibility="gone" android:importantForAccessibility="no"/>
+                <TextView android:id="@+id/red_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:text="Reddet" android:textSize="12sp" android:textColor="#ECEBFF" android:maxLines="1"/>
+            </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/liste" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:orientation="vertical">
+        <LinearLayout android:id="@+id/satir0" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <ImageView android:id="@+id/satir0_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#D97757" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir0_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Claude · sbyazilim"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir0_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="çalışıyor" android:textSize="11sp"
+                android:textColor="#5DCAA5" android:maxLines="1"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/satir1" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <ImageView android:id="@+id/satir1_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#8B8CF8" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir1_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Codex · Ofis"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir1_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="4 dk önce" android:textSize="11sp"
+                android:textColor="#A9A8C4" android:maxLines="1"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/satir2" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <ImageView android:id="@+id/satir2_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#D97757" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir2_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Claude · atolye"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir2_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="dün" android:textSize="11sp"
+                android:textColor="#A9A8C4" android:maxLines="1"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/satir3" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+            <ImageView android:id="@+id/satir3_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#D97757" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir3_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Claude · oturum"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir3_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="" android:textSize="11sp"
+                android:textColor="#A9A8C4" android:maxLines="1"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/satir4" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+            <ImageView android:id="@+id/satir4_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#D97757" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir4_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Claude · oturum"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir4_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="" android:textSize="11sp"
+                android:textColor="#A9A8C4" android:maxLines="1"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/satir5" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+            <ImageView android:id="@+id/satir5_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#D97757" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir5_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Claude · oturum"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir5_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="" android:textSize="11sp"
+                android:textColor="#A9A8C4" android:maxLines="1"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/satir6" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+            <ImageView android:id="@+id/satir6_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#D97757" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir6_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Claude · oturum"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir6_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="" android:textSize="11sp"
+                android:textColor="#A9A8C4" android:maxLines="1"/>
+        </LinearLayout>
+        <LinearLayout android:id="@+id/satir7" android:layout_width="match_parent" android:layout_height="26dp"
+            android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
+            <ImageView android:id="@+id/satir7_nokta" android:layout_width="7dp" android:layout_height="7dp"
+                android:src="@drawable/widget_nokta" android:tint="#D97757" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/satir7_ad" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="8dp" android:text="Claude · oturum"
+                android:textSize="13sp" android:textColor="#ECEBFF" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/satir7_durum" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp" android:text="" android:textSize="11sp"
+                android:textColor="#A9A8C4" android:maxLines="1"/>
+        </LinearLayout>
+        </LinearLayout>
+        <TextView android:id="@+id/bos" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp" android:text="Henüz oturum yok" android:textSize="12sp"
+            android:textColor="#A9A8C4" android:visibility="gone"/>
+        <FrameLayout android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1"/>
+        <LinearLayout android:id="@+id/kota" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:orientation="vertical">
+            <LinearLayout android:id="@+id/kota_claude" android:layout_width="match_parent" android:layout_height="18dp"
+                android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:id="@+id/kota_claude_ad" android:layout_width="52dp" android:layout_height="wrap_content"
+                    android:text="Claude" android:textSize="11sp" android:textColor="#A9A8C4" android:maxLines="1"/>
+                <ProgressBar android:id="@+id/kota_claude_cubuk" style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="0dp" android:layout_height="4dp" android:layout_weight="1"
+                    android:max="100" android:progress="50" android:progressDrawable="@drawable/widget_kota_claude"/>
+                <TextView android:id="@+id/kota_claude_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp" android:text="%50" android:textSize="11sp"
+                    android:textColor="#A9A8C4" android:maxLines="1"/>
+            </LinearLayout>
+            <LinearLayout android:id="@+id/kota_codex" android:layout_width="match_parent" android:layout_height="18dp"
+                android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:id="@+id/kota_codex_ad" android:layout_width="52dp" android:layout_height="wrap_content"
+                    android:text="Codex" android:textSize="11sp" android:textColor="#A9A8C4" android:maxLines="1"/>
+                <ProgressBar android:id="@+id/kota_codex_cubuk" style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="0dp" android:layout_height="4dp" android:layout_weight="1"
+                    android:max="100" android:progress="50" android:progressDrawable="@drawable/widget_kota_codex"/>
+                <TextView android:id="@+id/kota_codex_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp" android:text="%50" android:textSize="11sp"
+                    android:textColor="#A9A8C4" android:maxLines="1"/>
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:orientation="horizontal">
+            <LinearLayout android:id="@+id/konus" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" 
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="Konuş">
+                <ImageView android:id="@+id/konus_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_mikrofon" android:importantForAccessibility="no"/>
+                <TextView android:id="@+id/konus_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:text="Konuş" android:textSize="12sp" android:textColor="#ECEBFF" android:maxLines="1"/>
+            </LinearLayout>
+            <LinearLayout android:id="@+id/yeni" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginStart="6dp"
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="Yeni">
+                <ImageView android:id="@+id/yeni_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_ekle" android:importantForAccessibility="no"/>
+                <TextView android:id="@+id/yeni_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:text="Yeni" android:textSize="12sp" android:textColor="#ECEBFF" android:maxLines="1"/>
+            </LinearLayout>
+            <LinearLayout android:id="@+id/ara" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginStart="6dp"
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="Ara">
+                <ImageView android:id="@+id/ara_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_ara" android:importantForAccessibility="no"/>
+                <TextView android:id="@+id/ara_yazi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:text="Ara" android:textSize="12sp" android:textColor="#ECEBFF" android:maxLines="1"/>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

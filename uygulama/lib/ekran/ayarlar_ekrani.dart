@@ -11,6 +11,7 @@ import '../servis/termux.dart';
 import 'giris_penceresi.dart';
 import 'kurulum_paneli.dart';
 import 'mcp_ekrani.dart';
+import 'widget_ayarlari.dart';
 import 'zamanlanmis_isler.dart';
 
 /// Ayarlar: GitHub hesabı, SSH anahtarı, uzak sunucular, görünüm ve bağlantı.
@@ -312,6 +313,26 @@ class _AyarlarEkraniState extends State<AyarlarEkrani> {
                       ),
                     ),
                   ),
+                  if (Bildirim.destekleniyor)
+                    _Bolum(
+                      simge: Icons.widgets_outlined,
+                      baslik: 'Ana ekran widget\'ı',
+                      aciklama:
+                          'Çalışan ajanlar, bekleyen onaylar ve son oturumlar ana ekranda. '
+                          'Boyutu serbest; saydamlık, tema ve köşe ayarlanır.',
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: FilledButton.tonalIcon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => WidgetAyarlari(calisma: c),
+                            ),
+                          ),
+                          icon: const Icon(Icons.tune),
+                          label: const Text('Widget\'ı ayarla'),
+                        ),
+                      ),
+                    ),
                   if (Termux.destekleniyor) _GuncellemeBolumu(calisma: c),
                   _kopruBolumu(t),
                 ],

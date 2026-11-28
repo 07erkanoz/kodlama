@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: tool/widget_yerlesim.py, elle düzenlemeyin. Renkler ve görünürlük AtolyeWidget.kt'de ayarlanır. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/kok" android:layout_width="match_parent" android:layout_height="match_parent">
+    <ImageView android:id="@+id/arka" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" android:src="@drawable/widget_arka_20" android:tint="#14141C" android:importantForAccessibility="no"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:padding="12dp">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="22dp"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <ImageView android:id="@+id/simge" android:layout_width="16dp" android:layout_height="16dp"
+                android:src="@drawable/ic_bildirim" android:tint="#8B8CF8" android:importantForAccessibility="no"/>
+            <TextView android:id="@+id/ad" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="6dp" android:text="Atölye" android:textSize="14sp"
+                android:textStyle="bold" android:textColor="#ECEBFF" android:maxLines="1"/>
+            <FrameLayout android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
+            <ImageView android:id="@+id/nokta" android:layout_width="8dp" android:layout_height="8dp"
+                android:src="@drawable/widget_nokta" android:tint="#5DCAA5" android:importantForAccessibility="no"/>
+            <ImageView android:id="@+id/yenile" android:layout_width="28dp" android:layout_height="22dp"
+                android:paddingStart="8dp" android:paddingEnd="2dp" android:src="@drawable/wi_yenile" android:tint="#A9A8C4"
+                android:contentDescription="Yenile"/>
+        </LinearLayout>
+        <TextView android:id="@+id/sayi" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" android:text="2" android:textSize="24sp" android:textColor="#ECEBFF"
+            android:includeFontPadding="false"/>
+        <TextView android:id="@+id/sayi_yazi" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="ajan çalışıyor" android:textSize="11sp" android:textColor="#A9A8C4" android:maxLines="1"/>
+        <TextView android:id="@+id/hap" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" android:background="@drawable/widget_hap" android:paddingStart="7dp"
+            android:paddingEnd="7dp" android:paddingTop="2dp" android:paddingBottom="2dp"
+            android:text="1 onay bekliyor" android:textSize="11sp" android:textColor="#FAC775" android:maxLines="1"/>
+        <FrameLayout android:layout_width="1dp" android:layout_height="0dp" android:layout_weight="1"/>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <LinearLayout android:id="@+id/konus" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" 
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="konus">
+                <ImageView android:id="@+id/konus_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_mikrofon" android:importantForAccessibility="no"/>
+                
+            </LinearLayout>
+            <LinearLayout android:id="@+id/yeni" android:layout_width="0dp" android:layout_weight="1" android:layout_height="34dp" android:layout_marginStart="6dp"
+                android:orientation="horizontal" android:gravity="center"
+                android:background="@drawable/widget_dugme_koyu" android:contentDescription="yeni">
+                <ImageView android:id="@+id/yeni_simge" android:layout_width="16dp" android:layout_height="16dp"
+                    android:src="@drawable/wi_ekle" android:importantForAccessibility="no"/>
+                
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
